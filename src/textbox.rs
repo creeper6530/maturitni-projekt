@@ -316,6 +316,18 @@ where
         return self.text.clone();
     }
 
+    pub fn backspace(&mut self, count: usize) -> Result<(), ()> {
+        if self.text.len() < count {
+            warn!("Tried to backspace more than is present, returning an Err.");
+            return Err(());
+        }
+
+        for _ in 0..count {
+            self.text.pop().expect("We already checked, this shouldn't be possible!");
+        }
+        return Ok(());
+    }
+
     pub fn clear(&mut self) {
         warn!("Clearing the textbox, all text will be lost.");
         self.text.clear();

@@ -21,6 +21,9 @@ use hal::{
     watchdog::Watchdog,
     
     sio::Sio,
+
+    dma::single_buffer::Config as DmaSingleBufferConfig,
+    dma::DMAExt,
 };
 use rp2040_hal::fugit::RateExtU32; // For the `.kHz()` method on u32 integers
 use cortex_m::asm;
@@ -60,36 +63,36 @@ defmt::timestamp!("{=u64:us}", {
 #[hal::entry]
 fn main() -> ! {
     info!("Program start");
-    let mut pac = pac::Peripherals::take().unwrap();
+    let mut peri = pac::Peripherals::take().unwrap();
     let core = pac::CorePeripherals::take().unwrap();
-    let mut watchdog = Watchdog::new(pac.WATCHDOG);
-    let sio = Sio::new(pac.SIO);
+    let mut watchdog = Watchdog::new(peri.WATCHDOG);
+    let sio = Sio::new(peri.SIO);
 
     let clocks = init_clocks_and_plls(
         12_000_000u32,
-        pac.XOSC,
-        pac.CLOCKS,
-        pac.PLL_SYS,
-        pac.PLL_USB,
-        &mut pac.RESETS,
+        peri.XOSC,
+        peri.CLOCKS,
+        peri.PLL_SYS,
+        peri.PLL_USB,
+        &mut peri.RESETS,
         &mut watchdog,
     ).unwrap();
     let mut delay = cortex_m::delay::Delay::new(core.SYST, clocks.system_clock.freq().to_Hz());
     trace!("Clocks initialized");
 
     let pins = hal::gpio::Pins::new(
-        pac.IO_BANK0,
-        pac.PADS_BANK0,
+        peri.IO_BANK0,
+        peri.PADS_BANK0,
         sio.gpio_bank0,
-        &mut pac.RESETS,
+        &mut peri.RESETS,
     );
 
     let i2c = hal::I2C::i2c0(
-        pac.I2C0,
+        peri.I2C0,
         pins.gpio8.reconfigure(),
         pins.gpio9.reconfigure(),
         I2C_FREQ_KHZ.kHz(),
-        &mut pac.RESETS,
+        &mut peri.RESETS,
         &clocks.peripheral_clock,
     );
     trace!("I²C initialized");
@@ -112,13 +115,20 @@ fn main() -> ! {
 
     // Let me ask one question: Why the hell can't this be as straightforward as I²C is?
     let uart = hal::uart::UartPeripheral::new(
-        pac.UART0,
+        peri.UART0,
         (pins.gpio0.into_function(), pins.gpio1.into_function()), // Luckily the function itself is inferred, so we don't need to specify it explicitly
-        &mut pac.RESETS
+        &mut peri.RESETS
     )
     .enable(hal::uart::UartConfig::default(), clocks.peripheral_clock.freq()) // Default is a sane 115200 8N1
     .unwrap();
+    let (rx, tx) = uart.split();
     trace!("UART initialized");
+    
+    let dma = peri.DMA.split(&mut peri.RESETS);
+    let tx_transfer = DmaSingleBufferConfig::new(dma.ch0, b"UART initialised!\r\n", tx).start(); // Send a message over UART using DMA
+    let (_ch0, _, _tx) = tx_transfer.wait(); // So that we can reuse them
+
+    // ----------------------------------------------------------------------------
 
     let disp_refcell = RefCell::new(disp);
     // Range of isize is `-2147483648..=2147483647`
@@ -128,15 +138,38 @@ fn main() -> ! {
         .build();
 
     stack.push_slice(&[5, 6, 7, 8, 9, 10]).unwrap();
-    textbox.append_str("DEBUG TEXTBOX DEBUG!").unwrap();
+    //textbox.append_str("DEBUG TEXTBOX DEBUG!").unwrap();
 
     delay.delay_ms(2_000);
     stack.draw(false);
     textbox.draw(true);
 
-    loop {
-        asm::wfi();
-    }
-}
+    info!("Entering main loop");
 
-// End of file
+    loop {
+        let mut buf: [u8; 1] = [0];
+        rx.read_full_blocking(&mut buf).unwrap(); // TODO: Figure out a way to do this non-blocking, perhaps with DMA and an interrupt. I tried and failed miserably.
+
+        let char_buf = char::from_u32(buf[0] as u32).unwrap_or('\u{FFFD}'); // Replace invalid UTF-8 with the replacement character
+
+        match char_buf {
+            '\r' | '\n' => { // Enter or newline
+                textbox.clear();
+
+                // TODO: Process the input and push something to the stack
+            },
+            '\u{8}' | '\u{7F}' => { // Backspace or Delete
+                textbox.backspace(1).unwrap();
+            },
+            '0'..='9' => { // Digits
+                textbox.append_char(char_buf).unwrap();
+            },
+            _ => {
+                warn!("Unhandled character received over UART: {:?}", char_buf);
+                continue; // Ignore the character
+            },
+        }
+
+        textbox.draw(true);
+    };
+}
