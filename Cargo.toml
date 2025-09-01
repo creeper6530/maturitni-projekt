@@ -28,16 +28,16 @@ needless_return = "allow"
 # cargo build/run
 [profile.dev]
 codegen-units = 1
-debug = 2
+debug = "full"
 debug-assertions = true
 incremental = false
-opt-level = 3
+opt-level = 0 # Edited
 overflow-checks = true
 
 # cargo build/run --release
 [profile.release]
 codegen-units = 1
-debug = 0 # Edited
+debug = "none" # Edited
 debug-assertions = false
 incremental = false
 lto = 'fat'
@@ -62,16 +62,16 @@ overflow-checks = false
 # cargo test
 [profile.test]
 codegen-units = 1
-debug = 2
+debug = "full"
 debug-assertions = true
 incremental = false
-opt-level = 3
+opt-level = 0 # Edited
 overflow-checks = true
 
 # cargo test --release
 [profile.bench]
 codegen-units = 1
-debug = 2
+debug = "none" # Edited
 debug-assertions = false
 incremental = false
 lto = 'fat'
