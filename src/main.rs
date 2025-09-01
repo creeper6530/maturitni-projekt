@@ -9,6 +9,9 @@ const I2C_FREQ_KHZ: u32 = 1000; // 1 MHz, the maximum speed for I²C on the RP20
 use defmt::*;
 use defmt_rtt as _;
 use panic_probe as _;
+// TODO: Use other channels of RTT by using `rtt-target` crate instead of `defmt-rtt`
+// https://docs.rs/rtt-target/latest/rtt_target/#defmt-integration
+// Perhaps even use this instead of UART for terminal?
 
 use rp2040_hal as hal;
 use hal::{
@@ -124,12 +127,7 @@ fn main() -> ! {
     let mut textbox: _ = CustomTextboxBuilder::new(&disp_refcell)
         .build();
 
-    stack.push(5).unwrap();
-    stack.push(6).unwrap();
-    stack.push(7).unwrap();
-    stack.push(8).unwrap();
-    stack.push(9).unwrap();
-    stack.push(10).unwrap();
+    stack.push_slice(&[5, 6, 7, 8, 9, 10]).unwrap();
     textbox.append_str("DEBUG TEXTBOX DEBUG!").unwrap();
 
     delay.delay_ms(2_000);

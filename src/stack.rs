@@ -339,6 +339,15 @@ where
         return pushed;
     }
 
+    pub fn push_slice(&mut self, slice: &[T]) -> Result<(), ()> {
+        if self.data.len() + slice.len() > MAX_STACK_SIZE {
+            warn!("Tried to push a slice onto the stack that would overflow it, returning Err.");
+            return Err(());
+        }
+
+        return self.data.extend_from_slice(slice).map_err(|_| ()); // Technically could be unwrapped because of the check above, but better safe than sorry
+    }
+
     /// Pops a value from the stack.
     /// If the stack is empty, it returns `None`.
     pub fn pop(&mut self) -> Option<T> {
