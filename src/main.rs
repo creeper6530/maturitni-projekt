@@ -9,6 +9,7 @@ const I2C_FREQ_KHZ: u32 = 1000; // 1 MHz, the maximum speed for I²C on the RP20
 use defmt::*;
 use defmt_rtt as _;
 use panic_probe as _;
+
 // TODO: Use other channels of RTT by using `rtt-target` crate instead of `defmt-rtt`
 // https://docs.rs/rtt-target/latest/rtt_target/#defmt-integration
 // Perhaps even use this instead of UART for terminal?
@@ -26,10 +27,9 @@ use hal::{
     dma::DMAExt,
 };
 use rp2040_hal::fugit::RateExtU32; // For the `.kHz()` method on u32 integers
-use cortex_m::asm;
 
 // Display imports
-use embedded_graphics::{prelude::*, image::Image};
+use embedded_graphics::{prelude::*, image::Image, pixelcolor::BinaryColor};
 use ssd1306::{prelude::*, Ssd1306};
 use tinybmp::Bmp;
 
@@ -124,15 +124,17 @@ fn main() -> ! {
     let (rx, tx) = uart.split();
     trace!("UART initialized");
     
+    // Here we're basically just flexing that we can use DMA :D
     let dma = peri.DMA.split(&mut peri.RESETS);
-    let tx_transfer = DmaSingleBufferConfig::new(dma.ch0, b"UART initialised!\r\n", tx).start(); // Send a message over UART using DMA
-    let (_ch0, _, _tx) = tx_transfer.wait(); // So that we can reuse them
+    let _tx_transfer = DmaSingleBufferConfig::new(dma.ch0, b"\x1b[2J\x1b[HUART initialised!\r\n", tx).start(); // Send a message over UART using DMA, also clear the terminal (VT100 codes)
+    // We don't need the channel or the transmitter anymore, so we don't wait for the transfer to complete
+    //let (_ch0, _, _tx) = tx_transfer.wait(); // So that we can reuse them
 
     // ----------------------------------------------------------------------------
 
     let disp_refcell = RefCell::new(disp);
-    // Range of isize is `-2147483648..=2147483647`
-    let mut stack: CustomStack<'_, isize, _, _> = CustomStackBuilder::<'_, isize, _, _>::new(&disp_refcell) // We're using the turbofish syntax here
+    // Range of i32 is `-2147483648..=2147483647`
+    let mut stack: CustomStack<'_, i32, _, _> = CustomStackBuilder::<'_, i32, _, _>::new(&disp_refcell) // We're using the turbofish syntax here
         .build();
     let mut textbox: _ = CustomTextboxBuilder::new(&disp_refcell)
         .build();
@@ -148,28 +150,244 @@ fn main() -> ! {
 
     loop {
         let mut buf: [u8; 1] = [0];
-        rx.read_full_blocking(&mut buf).unwrap(); // TODO: Figure out a way to do this non-blocking, perhaps with DMA and an interrupt. I tried and failed miserably.
+        rx.read_full_blocking(&mut buf).unwrap(); // TODO: Figure out a way to do this non-blocking, perhaps with DMA and/or an interrupt. I tried and failed miserably.
 
-        let char_buf = char::from_u32(buf[0] as u32).unwrap_or('\u{FFFD}'); // Replace invalid UTF-8 with the replacement character
+        let char_buf = char::from_u32(buf[0] as u32).unwrap_or('?'); // Replace invalid UTF-8 with a replacement character
 
         match char_buf {
             '\r' | '\n' => { // Enter or newline
+                if textbox.len() == 0 {
+                    continue; // Ignore empty textbox
+                }
+
+                let txbx_data = textbox.get_text();
                 textbox.clear();
 
-                // TODO: Process the input and push something to the stack
+                // XXX: If you change the stack type, you need to change this too
+                match txbx_data.parse::<i32>() {
+                    Ok(num) => {
+                        match stack.push(num) {
+                            Ok(_) => {
+                                // We save ourselves a double flush call when drawing both, because I²C ops are slow and blocking
+                                stack.draw(false);
+                                textbox.draw(true);
+                            },
+                            Err(e) => {
+                                error!("Failed to push number onto stack: {:?}", e);
+                                textbox.append_str("Err").unwrap(); // TODO: Show error on display in a better way than contaminating the textbox
+                                textbox.draw(true);
+                            },
+                        };
+                    },
+                    Err(_) => {
+                        error!("Failed to parse input as number (ParseIntError)");
+                        warn!("This should normally be impossible, textbox must be contaminated");
+                        textbox.append_str("Err").unwrap(); // TODO: Show error on display in a better way than contaminating the textbox... again
+                        textbox.draw(true);
+                    },
+                };
             },
+
             '\u{8}' | '\u{7F}' => { // Backspace or Delete
-                textbox.backspace(1).unwrap();
+                #[cfg(debug_assertions)]
+                trace!("Character received: (0x{:X})", buf[0]);
+
+                if textbox.len() == 0 {
+                    info!("Ignoring backspace on empty textbox");
+                    continue; // Ignore backspace on empty textbox
+                }
+                match textbox.backspace(1) {
+                    Ok(_) => {},
+                    Err(_) => {
+                        error!("Failed to backspace textbox");
+                        textbox.append_str("Err").unwrap(); // TODO: Show error on display in a better way than contaminating the textbox
+                        textbox.draw(true);
+                        continue;
+                    },
+                };
+                textbox.draw(true);
+                continue;
             },
+
             '0'..='9' => { // Digits
                 textbox.append_char(char_buf).unwrap();
+                textbox.draw(true);
+                continue;
             },
+
+            '+' | '-' | '*' | '/' | '%' | '^' => {
+                if textbox.len() != 0 {
+                    let data = textbox.get_text();
+                    textbox.clear();
+
+                    let num_res = data.parse::<i32>(); // XXX: If you change the stack type, you need to change this too
+                    match num_res {
+                        Ok(num) => {
+                            match stack.push(num) {
+                                Ok(_) => {}, // Do nothing
+                                Err(e) => {
+                                    error!("Failed to push number onto stack: {:?}", e);
+                                    textbox.append_str("Err").unwrap(); // TODO: Show error on display in a better way than contaminating the textbox
+                                    textbox.draw(true);
+                                    continue; // There's something beyond this if-statement, so we need to avoid executing it because we encountered an error
+                                },
+                            };
+                        },
+                        Err(_e) => {
+                            error!("Failed to parse input as number (ParseIntError)");
+                            warn!("This should normally be impossible, textbox must be contaminated");
+                            textbox.append_str("Err").unwrap(); // TODO: Show error on display in a better way than contaminating the textbox
+                            textbox.draw(true);
+                            continue;
+                        },
+                    };
+                }
+
+                // Since the stack is LIFO, the A is the one pushed earlier, so it is popped later
+                // So that for "5 6 -", we do 5 - 6, not 6 - 5
+                let b_res = stack.pop();
+                let a_res = stack.pop();
+
+                let c = match (a_res, b_res) {
+                    (Some(a), Some(b)) => {
+
+                        match char_buf {
+                            '+' => a + b, // TODO: Check for overflow and handle it gracefully (such as `a.checked_add(b)`)
+                            '-' => a - b,
+                            '*' => a * b,
+                            '/' => { // Integer division, i.e. truncating towards zero
+                                if b == 0 {
+                                    error!("Division by zero");
+                                    textbox.append_str("Err").unwrap(); // TODO: Show error on display in a better way than contaminating the textbox
+                                    textbox.draw(true);
+                                    continue;
+                                } else {
+                                    a / b
+                                }
+                            },
+                            '%' => {
+                                if b == 0 {
+                                    error!("Modulo by zero");
+                                    textbox.append_str("Err").unwrap();
+                                    textbox.draw(true);
+                                    continue;
+                                } else {
+                                    a % b
+                                }
+                            },
+                            '^' => {
+                                if b < 0 {
+                                    error!("Exponentiation to a negative power");
+                                    textbox.append_str("Err").unwrap();
+                                    textbox.draw(true);
+                                    continue;
+                                } else {
+                                    a.pow(b as u32) // We can safely cast to u32 because we checked that b is non-negative
+                                }
+                            },
+                            _ => defmt::unreachable!(), // We already checked this above
+                        }
+
+                    },
+                    (None, Some(_)) | (None, None) => {
+                        error!("Failed to pop number from stack");
+                        textbox.append_str("Err").unwrap(); // TODO: Show error on display in a better way than contaminating the textbox
+                        stack.draw(false); // Redraw stack because we popped something
+                        textbox.draw(true);
+                        continue;
+                    },
+                    (Some(_), None) => defmt::unreachable!(), // This should be impossible
+                };
+
+                match stack.push(c) {
+                    Ok(_) => {
+                        stack.draw(false);
+                        textbox.draw(true);
+                    },
+                    Err(_) => {
+                        error!("Failed to push result onto stack");
+                        textbox.append_str("Err").unwrap(); // TODO: Show error on display in a better way than contaminating the textbox
+                        textbox.draw(true);
+                        continue;
+                    },
+                };
+            },
+
+            'c' => { // Clear textbox
+                textbox.clear();
+                textbox.draw(true);
+                continue;
+            },
+
+            'C' => { // Clear everything (we assume the Shift-C is enough of a modifier)
+                textbox.clear();
+                stack.clear();
+                textbox.draw(false);
+                stack.draw(true);
+                continue;
+            },
+
+            'd' => { // Duplicate the top element of the stack
+                match stack.pop() {
+                    Some(val) => {
+                        for _ in 0..2 { // We pop once, so we need to push twice to duplicate
+                            match stack.push(val) {
+                                Ok(_) => {},
+                                Err(e) => {
+                                    error!("Failed to push number onto stack: {:?}", e);
+                                    textbox.append_str("Err").unwrap();
+                                    textbox.draw(true);
+                                    continue;
+                                },
+                            };
+                        }
+                        stack.draw(true);
+                        continue;
+                    },
+                    None => {
+                        error!("Failed to duplicate top element of stack: stack is empty");
+                        textbox.append_str("Err").unwrap();
+                        textbox.draw(true);
+                        continue;
+                    },
+                };
+            },
+
+            'D' => { // Drop the topmost element of the stack
+                match stack.pop() {
+                    Some(_) => {
+                        stack.draw(true);
+                        continue;
+                    },
+                    None => {
+                        info!("Failed to drop top element of stack: stack is empty. Not an error, only ignoring.");
+                        continue;
+                    },
+                };
+            },
+
+            '\x03' => { // Ctrl-C
+                // TODO: Add possible cleanup code here
+                drop(stack);
+                drop(textbox);
+                {
+                    trace!("Consuming the refcell and deinitializing the display");
+                    let mut disp = disp_refcell.into_inner();
+                    disp.clear(BinaryColor::Off).unwrap();
+                    disp.flush().unwrap();
+                    disp.set_display_on(false).unwrap();
+                    disp.release() // Release the I²C interface
+                    .release() // Release the I²C peripheral
+                    .free(&mut peri.RESETS); // Free the I²C peripheral
+                }
+
+                defmt::panic!("Stopped by user (Ctrl-C)");
+            },
+
             _ => {
-                warn!("Unhandled character received over UART: {:?}", char_buf);
+                warn!("Unhandled character received over UART: {:?} (0x{:X})", char_buf, buf[0]);
                 continue; // Ignore the character
             },
         }
-
-        textbox.draw(true);
     };
 }

@@ -276,7 +276,7 @@ where
         // Clear the area where the stack will be drawn
         Rectangle::new(
             (0, 0).into(),
-            (self.disp_dimensions.width as u32, (text_height * num_lines) as u32).into() // We don't clear more space than needed
+            (self.disp_dimensions.width as u32, (text_height * ((self.disp_dimensions.height / text_height) - 1)) as u32).into() // We always clear the entire area, e.g. when popping elements
         )
         .into_styled(
             if self.debug {
@@ -287,6 +287,12 @@ where
         )
         .draw(display_ref)
         .unwrap();
+
+        if self.data.is_empty() {
+            // If the stack is empty, we don't need to draw anything so we expediently return
+            if flush { display_ref.flush().unwrap(); };
+            return;
+        }
 
         let text_vec = self.multipeek(num_lines)
             .unwrap_or(Vec::new()); // If the stack is empty, we get an empty Vec
