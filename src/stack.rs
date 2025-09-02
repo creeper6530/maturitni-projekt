@@ -45,7 +45,6 @@ use panic_probe as _;
 // ------------------------------------------------------------------------------------------------------------------------------------------------
 
 // Note: these constants are copied in `textbox.rs` as well, maintain consistency between the two files!
-// TODO: Make a common file for constants? Could even encompass `main.rs`.
 
 // Compile time constants
 /// Maximum size of the stack

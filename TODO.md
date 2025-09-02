@@ -1,0 +1,16 @@
+- Handle non-integers.
+  - Current idea: multiply everything by 10^9 and keep them as ints, by that making decimal fixed-point for 9 decimal places
+  - That would need to be handled while drawing the stack and doing numerical ops
+- Get better error handling, no unwrap()-s, or at the very least expect()-s. Panics are for irrecoverable catastrophes.
+  - Get a better way to show error than polluting the textbox. Leading idea: show a black `E` in a white square in the top right corner, or for grave errors clear screen white and show a big `ERROR` text before resetting with `cortex_m::peripheral::SCB::sys_reset()` (after a delay, of course).
+  - Especially handle overflows when doing number shit. Currently we have overflow checks in both `debug` and `release` targets, but that's again a panic...
+    - The `a.checked_add(b)` function(s) may help
+- Switch to `rtt-target` in order to be able to finer control RTT, instead of `defmt-rtt`.
+  - Perhaps we could use its probe-to-target comms in place of UART to rid ourselves of one wire? But then we'd require a probe attached, not a generic UART. We probably won't always need a probe...
+  - Docs on how to do it [here](https://docs.rs/rtt-target/latest/rtt_target/#defmt-integration).
+- Set the display brightness with a potentiometer
+  - Would be polled, datasheet shows no trace of interrupts on value change (duh)
+- Figure out a way to do UART receiving asynchronously – without polling, but interrupts, DMA or similar funsies. Just so that we don't block and can go to WFI/WFE sleep.
+  - I already tried something and failed miserable. That's why we poll ATM.
+- Make a common file for all constants instead of them being spread around `stack.rs`, `textbox.rs` and `main.rs`, or at least add runtime checks that matching consts equal.
+- 

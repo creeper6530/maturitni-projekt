@@ -45,7 +45,6 @@ use panic_probe as _;
 // ------------------------------------------------------------------------------------------------------------------------------------------------
 
 // Note: these constants are copied in `stack.rs` as well, maintain consistency between the two files!
-// TODO: Make a common file for constants? Could even encompass `main.rs`.
 
 // Compile time constants
 /** The fonts we use usually have unused pixels at the top that'd waste space,

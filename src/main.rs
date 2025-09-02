@@ -7,12 +7,8 @@
 const I2C_FREQ_KHZ: u32 = 1000; // 1 MHz, the maximum speed for I²C on the RP2040 (so-called Fast Mode Plus; datasheet 4.3.3), and the SSD1306 can handle it well
 
 use defmt::*;
-use defmt_rtt as _;
+use defmt_rtt as _; // We start RTT in no-blocking mode, `probe-run` will switch to blocking mode. That's why we shall not disconnect the probe while the program is running.
 use panic_probe as _;
-
-// TODO: Use other channels of RTT by using `rtt-target` crate instead of `defmt-rtt`
-// https://docs.rs/rtt-target/latest/rtt_target/#defmt-integration
-// Perhaps even use this instead of UART for terminal?
 
 use rp2040_hal as hal;
 use hal::{
@@ -101,7 +97,7 @@ fn main() -> ! {
     let mut disp = Ssd1306::new(iface, DisplaySize128x64, DisplayRotation::Rotate0)
         .into_buffered_graphics_mode();
     disp.init().unwrap();
-    disp.set_brightness(Brightness::BRIGHTEST).unwrap(); // TODO: Set the brightness with a potentiometer (probably poll, not ADC interrupt due to noise)
+    disp.set_brightness(Brightness::BRIGHTEST).unwrap();
 
     // We show a Rust logo bitmap on the display as a loading screen
     // We're showing it as soon as possible once the display and everything it needs is initialized
@@ -174,7 +170,7 @@ fn main() -> ! {
                             },
                             Err(e) => {
                                 error!("Failed to push number onto stack: {:?}", e);
-                                textbox.append_str("Err").unwrap(); // TODO: Show error on display in a better way than contaminating the textbox
+                                textbox.append_str("Err").unwrap(); // HACK: Show error on display in a better way than contaminating the textbox
                                 textbox.draw(true);
                             },
                         };
@@ -182,7 +178,7 @@ fn main() -> ! {
                     Err(_) => {
                         error!("Failed to parse input as number (ParseIntError)");
                         warn!("This should normally be impossible, textbox must be contaminated");
-                        textbox.append_str("Err").unwrap(); // TODO: Show error on display in a better way than contaminating the textbox... again
+                        textbox.append_str("Err").unwrap(); // HACK: Show error on display in a better way than contaminating the textbox... again
                         textbox.draw(true);
                     },
                 };
@@ -200,7 +196,7 @@ fn main() -> ! {
                     Ok(_) => {},
                     Err(_) => {
                         error!("Failed to backspace textbox");
-                        textbox.append_str("Err").unwrap(); // TODO: Show error on display in a better way than contaminating the textbox
+                        textbox.append_str("Err").unwrap(); // HACK
                         textbox.draw(true);
                         continue;
                     },
@@ -227,7 +223,7 @@ fn main() -> ! {
                                 Ok(_) => {}, // Do nothing
                                 Err(e) => {
                                     error!("Failed to push number onto stack: {:?}", e);
-                                    textbox.append_str("Err").unwrap(); // TODO: Show error on display in a better way than contaminating the textbox
+                                    textbox.append_str("Err").unwrap(); // HACK
                                     textbox.draw(true);
                                     continue; // There's something beyond this if-statement, so we need to avoid executing it because we encountered an error
                                 },
@@ -236,7 +232,7 @@ fn main() -> ! {
                         Err(_e) => {
                             error!("Failed to parse input as number (ParseIntError)");
                             warn!("This should normally be impossible, textbox must be contaminated");
-                            textbox.append_str("Err").unwrap(); // TODO: Show error on display in a better way than contaminating the textbox
+                            textbox.append_str("Err").unwrap(); // HACK
                             textbox.draw(true);
                             continue;
                         },
@@ -252,13 +248,13 @@ fn main() -> ! {
                     (Some(a), Some(b)) => {
 
                         match char_buf {
-                            '+' => a + b, // TODO: Check for overflow and handle it gracefully (such as `a.checked_add(b)`)
+                            '+' => a + b,
                             '-' => a - b,
                             '*' => a * b,
                             '/' => { // Integer division, i.e. truncating towards zero
                                 if b == 0 {
                                     error!("Division by zero");
-                                    textbox.append_str("Err").unwrap(); // TODO: Show error on display in a better way than contaminating the textbox
+                                    textbox.append_str("Err").unwrap(); // HACK
                                     textbox.draw(true);
                                     continue;
                                 } else {
@@ -268,7 +264,7 @@ fn main() -> ! {
                             '%' => {
                                 if b == 0 {
                                     error!("Modulo by zero");
-                                    textbox.append_str("Err").unwrap();
+                                    textbox.append_str("Err").unwrap(); // HACK
                                     textbox.draw(true);
                                     continue;
                                 } else {
@@ -278,7 +274,7 @@ fn main() -> ! {
                             '^' => {
                                 if b < 0 {
                                     error!("Exponentiation to a negative power");
-                                    textbox.append_str("Err").unwrap();
+                                    textbox.append_str("Err").unwrap(); // HACK
                                     textbox.draw(true);
                                     continue;
                                 } else {
@@ -291,7 +287,7 @@ fn main() -> ! {
                     },
                     (None, Some(_)) | (None, None) => {
                         error!("Failed to pop number from stack");
-                        textbox.append_str("Err").unwrap(); // TODO: Show error on display in a better way than contaminating the textbox
+                        textbox.append_str("Err").unwrap(); // HACK
                         stack.draw(false); // Redraw stack because we popped something
                         textbox.draw(true);
                         continue;
@@ -306,7 +302,7 @@ fn main() -> ! {
                     },
                     Err(_) => {
                         error!("Failed to push result onto stack");
-                        textbox.append_str("Err").unwrap(); // TODO: Show error on display in a better way than contaminating the textbox
+                        textbox.append_str("Err").unwrap(); // HACK
                         textbox.draw(true);
                         continue;
                     },
@@ -335,7 +331,7 @@ fn main() -> ! {
                                 Ok(_) => {},
                                 Err(e) => {
                                     error!("Failed to push number onto stack: {:?}", e);
-                                    textbox.append_str("Err").unwrap();
+                                    textbox.append_str("Err").unwrap(); // HACK
                                     textbox.draw(true);
                                     continue;
                                 },
@@ -346,7 +342,7 @@ fn main() -> ! {
                     },
                     None => {
                         error!("Failed to duplicate top element of stack: stack is empty");
-                        textbox.append_str("Err").unwrap();
+                        textbox.append_str("Err").unwrap(); // HACK
                         textbox.draw(true);
                         continue;
                     },
@@ -367,7 +363,7 @@ fn main() -> ! {
             },
 
             '\x03' => { // Ctrl-C
-                // TODO: Add possible cleanup code here
+                // XXX: Add potential explicit cleanup code here
                 drop(stack);
                 drop(textbox);
                 {
