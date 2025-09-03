@@ -431,7 +431,7 @@ where
     /// ## Warning
     /// This method will cause all data in the stack to be lost.
     pub fn clear(&mut self) {
-        warn!("Clearing the stack, all data will be lost.");
+        //warn!("Clearing the stack, all data will be lost.");
         self.data.clear();
     }
 

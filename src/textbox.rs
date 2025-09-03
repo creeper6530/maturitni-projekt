@@ -327,8 +327,14 @@ where
         return Ok(());
     }
 
+    // core::str::pattern::Pattern like in str::contains is unstable, so we only implement the char version for now
+    // For more info, see: https://github.com/rust-lang/rust/issues/27721
+    pub fn contains(&self, pat: char) -> bool {
+        return self.text.contains(pat);
+    }
+
     pub fn clear(&mut self) {
-        warn!("Clearing the textbox, all text will be lost.");
+        //warn!("Clearing the textbox, all text will be lost.");
         self.text.clear();
     }
 

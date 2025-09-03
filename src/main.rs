@@ -36,6 +36,8 @@ mod stack;
 use stack::*;
 mod textbox;
 use textbox::*;
+mod decfix;
+use decfix::DecimalFixed;
 
 #[unsafe(link_section = ".boot2")]
 #[used]
@@ -130,15 +132,15 @@ fn main() -> ! {
 
     let disp_refcell = RefCell::new(disp);
     // Range of i32 is `-2147483648..=2147483647`
-    let mut stack: CustomStack<'_, i32, _, _> = CustomStackBuilder::<'_, i32, _, _>::new(&disp_refcell) // We're using the turbofish syntax here
+    let mut stack: CustomStack<'_, DecimalFixed, _, _> = CustomStackBuilder::<'_, DecimalFixed, _, _>::new(&disp_refcell) // We're using the turbofish syntax here
         .build();
     let mut textbox: _ = CustomTextboxBuilder::new(&disp_refcell)
         .build();
 
-    stack.push_slice(&[5, 6, 7, 8, 9, 10]).unwrap();
+    //stack.push_slice(&[5, 6, 7, 8, 9, 10]).unwrap();
     //textbox.append_str("DEBUG TEXTBOX DEBUG!").unwrap();
 
-    delay.delay_ms(2_000);
+    delay.delay_ms(200); // Just to show the Rust logo for a bit
     stack.draw(false);
     textbox.draw(true);
 
@@ -160,7 +162,7 @@ fn main() -> ! {
                 textbox.clear();
 
                 // XXX: If you change the stack type, you need to change this too
-                match txbx_data.parse::<i32>() {
+                match txbx_data.as_str().parse::<DecimalFixed>() {
                     Ok(num) => {
                         match stack.push(num) {
                             Ok(_) => {
@@ -186,7 +188,7 @@ fn main() -> ! {
 
             '\u{8}' | '\u{7F}' => { // Backspace or Delete
                 #[cfg(debug_assertions)]
-                trace!("Character received: (0x{:X})", buf[0]);
+                debug!("Backspace character received: (0x{:X})", buf[0]);
 
                 if textbox.len() == 0 {
                     info!("Ignoring backspace on empty textbox");
@@ -205,18 +207,33 @@ fn main() -> ! {
                 continue;
             },
 
+            '.' | ',' => { // Decimal point
+                if textbox.len() == 0 {
+                    textbox.append_str("0.").unwrap();
+                    textbox.draw(true);
+                    continue;
+                }
+                if textbox.contains('.') {
+                    warn!("Ignoring decimal point, textbox already contains one");
+                    continue; // Ignore decimal point if there's already one in the textbox
+                }
+                textbox.append_char('.').unwrap();
+                textbox.draw(true);
+                continue;
+            },
+
             '0'..='9' => { // Digits
                 textbox.append_char(char_buf).unwrap();
                 textbox.draw(true);
                 continue;
             },
 
-            '+' | '-' | '*' | '/' | '%' | '^' => {
+            '+' | '-' | '*' | '/' => {
                 if textbox.len() != 0 {
                     let data = textbox.get_text();
                     textbox.clear();
 
-                    let num_res = data.parse::<i32>(); // XXX: If you change the stack type, you need to change this too
+                    let num_res = data.parse::<DecimalFixed>(); // XXX: If you change the stack type, you need to change this too
                     match num_res {
                         Ok(num) => {
                             match stack.push(num) {
@@ -251,34 +268,21 @@ fn main() -> ! {
                             '+' => a + b,
                             '-' => a - b,
                             '*' => a * b,
-                            '/' => { // Integer division, i.e. truncating towards zero
-                                if b == 0 {
+                            '/' => { // FIXME: Division seems to be broken when dividing integers that don't divide evenly.
+                                     /* For example 5 / 2 = 2.5, but we get 2; 
+                                     However, 20.5 / 2 = 10.25, but we get 10.2 , so the exponent seems to be handled correctly, just there's not enough of it.
+                                     When I try 20.50 / 2 I get 10.25, or 20.500 / 2 = 10.250.
+                                     Either automatically increasing the exponent when needed, or doing a reasonable default exponent for parse() would be nice.
+                                     (Currently parse() gives only as much exponent as it needs to represent the number)
+                                     
+                                     Also interesting is that 5.0 / 2 gives correct 2.5, but 5.0 / 2.0 gives 2 */
+                                if b.is_zero() {
                                     error!("Division by zero");
                                     textbox.append_str("Err").unwrap(); // HACK
                                     textbox.draw(true);
                                     continue;
                                 } else {
                                     a / b
-                                }
-                            },
-                            '%' => {
-                                if b == 0 {
-                                    error!("Modulo by zero");
-                                    textbox.append_str("Err").unwrap(); // HACK
-                                    textbox.draw(true);
-                                    continue;
-                                } else {
-                                    a % b
-                                }
-                            },
-                            '^' => {
-                                if b < 0 {
-                                    error!("Exponentiation to a negative power");
-                                    textbox.append_str("Err").unwrap(); // HACK
-                                    textbox.draw(true);
-                                    continue;
-                                } else {
-                                    a.pow(b as u32) // We can safely cast to u32 because we checked that b is non-negative
                                 }
                             },
                             _ => defmt::unreachable!(), // We already checked this above
@@ -292,7 +296,7 @@ fn main() -> ! {
                         textbox.draw(true);
                         continue;
                     },
-                    (Some(_), None) => defmt::unreachable!(), // This should be impossible
+                    (Some(_), None) => defmt::unreachable!(), // This should be impossible. How can we first fail but then succeed?
                 };
 
                 match stack.push(c) {
@@ -359,6 +363,55 @@ fn main() -> ! {
                         info!("Failed to drop top element of stack: stack is empty. Not an error, only ignoring.");
                         continue;
                     },
+                };
+            },
+
+            's' => { // Swap the top two elements of the stack
+                // B was pushed later, so it is popped first
+                let option_b = stack.pop();
+                let option_a = stack.pop();
+
+                match (option_a, option_b) {
+                    (Some(a), Some(b)) => {
+                        // Earlier B was pushed later, so it is now pushed irst
+                        match stack.push(b) {
+                            Ok(_) => {},
+                            Err(e) => {
+                                error!("Failed to push number onto stack: {:?}", e);
+                                textbox.append_str("Err").unwrap(); // HACK
+                                textbox.draw(true);
+                                continue;
+                            },
+                        };
+                        match stack.push(a) {
+                            Ok(_) => {},
+                            Err(e) => {
+                                error!("Failed to push number onto stack: {:?}", e);
+                                textbox.append_str("Err").unwrap(); // HACK
+                                textbox.draw(true);
+                                continue;
+                            },
+                        };
+                        stack.draw(true);
+                        continue;
+                    },
+                    (None, Some(a)) => {
+                        info!("Failed to swap top two elements of stack: stack has only one element. Not an error, only ignoring.");
+                        match stack.push(a) {
+                            Ok(_) => {},
+                            Err(e) => {
+                                error!("Failed to push number onto stack: {:?}", e);
+                                textbox.append_str("Err").unwrap(); // HACK
+                                textbox.draw(true);
+                                continue;
+                            },
+                        };
+                    },
+                    (None, None) => {
+                        info!("Failed to swap top two elements of stack: stack is empty. Not an error, only ignoring.");
+                        continue;
+                    },
+                    (Some(_), None) => defmt::unreachable!(),
                 };
             },
 
