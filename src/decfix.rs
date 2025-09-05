@@ -1,6 +1,7 @@
 use defmt::Format;
 #[allow(unused_imports)]
 use defmt::{trace, debug, info, warn, error, panic, unreachable, unimplemented};
+use heapless::format;
 use core::{fmt::Display, ops::{Add, Sub, Mul, Div}, str::FromStr};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Format)]
@@ -77,27 +78,44 @@ impl DecimalFixed {
         Self { value, exponent }
     }
 
-    fn to_i64(&self) -> i64 {
-        if self.exponent == 0 {
-            self.value
-        } else if self.exponent > 0 {
-            self.value * 10_i64.pow(self.exponent as u32)
-        } else {
-            // This will truncate the decimal part, which is expected when converting to integer
-            self.value / 10_i64.pow((-self.exponent) as u32)
-        }
-    }
+    pub fn parse_static_exp(s: &str, exp: i8) -> Result<Self, ()> {
+        match s.find('.') {
+            Some(dot_index) => {
+                let (whole_part_str, fractional_part_str) = s.split_at(dot_index);
+                let mut fractional_part_str = &fractional_part_str[1..]; // Skip the dot
 
-    // Almost certainly lossy conversion, since f64 doesn't implement From::<i64>
-    fn to_f64(&self) -> f64 {
-        if self.exponent == 0 {
-            self.value as f64
-        } else if self.exponent > 0 {
-            self.value as f64 * (10_i64.pow(self.exponent as u32)) as f64   
-        } else {
-            // This should hopefully not lose the decimal part
-            // TODO: Test this
-            self.value as f64 / (10_i64.pow((-self.exponent) as u32)) as f64
+                let whole_part = whole_part_str.parse::<i64>().map_err(|_| ())?;
+                let fractional_part = if fractional_part_str.is_empty() {
+                    0
+                } else {
+                    let buf_string;
+                    // Transform the fractional part to be (-exp) digits long - either pad at the end or truncate
+                    if fractional_part_str.len() > 9 { // Truncate
+                        if exp > 0 { return Err(()) }
+                        fractional_part_str = &fractional_part_str[..(-exp as usize)];
+                        debug_assert_eq!(fractional_part_str.len(), 9);
+                    } else if fractional_part_str.len() < 9 { // Pad
+                        buf_string = format!(10; "{:0<10}", fractional_part_str).map_err(|_| ())?;
+                        fractional_part_str = buf_string.as_str();
+                    } /*else {
+                        // do nothing
+                    }*/
+
+                    fractional_part_str.parse().map_err(|_| ())?
+                };
+
+                let value = whole_part * 10_i64.pow(-exp as u32) + fractional_part;
+
+                Ok( DecimalFixed { value, exponent: exp } )
+            }
+            None => {
+                let base_num = s.parse::<i64>().map_err(|_| ())?;
+                if exp < 0 {
+                    Ok( DecimalFixed { value: base_num.checked_mul(10_i64.pow((-exp) as u32)).ok_or(())? , exponent: exp } )
+                } else {
+                    Ok( DecimalFixed { value: base_num / 10_i64.pow(exp as u32) , exponent: exp } )
+                }
+            }
         }
     }
 
@@ -132,10 +150,19 @@ impl DecimalFixed {
         // (value1 * 10^exp1) * (value2 * 10^exp2) = (value1 * value2) * 10^(exp1 + exp2)
         if keep_exponent {
             if self.exponent != other.exponent { return Err(()) }
-            // To keep the exponent the same, we need to scale down the result by 10^exponent
-            Ok( DecimalFixed { value: (self.value * other.value) / 10_i64.pow(self.exponent as u32) , exponent: self.exponent } )
+            
+            let scaled_end_value: i128 = i128::from(self.value) * i128::from(other.value); // Due to the scaling (addition of exponents), the value can get very large, so we use i128 here
+            let end_value: i128 = if self.exponent < 0 {
+                scaled_end_value / 10_i128.pow((-self.exponent) as u32) // After downscaling back, it should hopefully fit in i64 again
+            } else {
+                scaled_end_value.checked_mul(10_i128.pow(self.exponent as u32)).ok_or(())?
+            };
+
+            if end_value < i128::from(i64::MIN) || end_value > i128::from(i64::MAX) { return Err(()) };
+
+            Ok( DecimalFixed { value: i64::try_from(end_value).unwrap() , exponent: self.exponent } ) // Should be safe to unwrap thanks to the check above
         } else {
-            Ok( DecimalFixed { value: self.value * other.value , exponent: self.exponent + other.exponent } )
+            Ok( DecimalFixed { value: self.value.checked_mul(other.value).ok_or(())? , exponent: self.exponent + other.exponent } )
         }
     }
 
@@ -144,8 +171,19 @@ impl DecimalFixed {
         // (value1 * 10^exp1) / (value2 * 10^exp2) = (value1 / value2) * 10^(exp1 - exp2)
         if keep_exponent {
             if self.exponent != other.exponent { return Err(()) }
-            // To keep the exponent the same, we need to scale up the numerator by 10^exponent
-            Ok( DecimalFixed { value: (self.value / other.value) * 10_i64.pow(self.exponent as u32) , exponent: self.exponent } )
+
+            // We double the exponent in the numerator to keep it the same after division
+            if other.value == 0 { return Err(()) }; // Division by zero check
+
+            let scaled_self_value: i128 = if self.exponent < 0 {
+                i128::from(self.value).checked_mul(10_i128.pow((-self.exponent) as u32)).ok_or(())?
+            } else {
+                i128::from(self.value) / 10_i128.pow(self.exponent as u32)
+            };
+            let end_value: i128 = scaled_self_value / i128::from(other.value);
+
+            if end_value < i128::from(i64::MIN) || end_value > i128::from(i64::MAX) { return Err(()) };
+            Ok( DecimalFixed { value: i64::try_from(end_value).unwrap() , exponent: self.exponent } )
         } else {
             Ok( DecimalFixed { value: self.value / other.value , exponent: self.exponent - other.exponent } )
         }
@@ -153,6 +191,10 @@ impl DecimalFixed {
 
     pub fn negate(&self) -> DecimalFixed {
         DecimalFixed { value: -self.value, exponent: self.exponent }
+    }
+
+    pub fn negate_in_place(&mut self) -> () {
+        self.value = -self.value;
     }
 
     pub fn is_negative(&self) -> bool {
@@ -166,14 +208,30 @@ impl DecimalFixed {
 
 // Apparently it is idiomatic to implement `From` instead of `Into`, because `Into` is automatically implemented
 impl From<DecimalFixed> for i64 {
-    fn from(value: DecimalFixed) -> Self {
-        value.to_i64()
+    fn from(input: DecimalFixed) -> Self {
+        if input.exponent == 0 {
+            input.value
+        } else if input.exponent > 0 {
+            input.value * 10_i64.pow(input.exponent as u32)
+        } else {
+            // This will truncate the decimal part, which is expected when converting to integer
+            input.value / 10_i64.pow((-input.exponent) as u32)
+        }
     }
 }
 
 impl From<DecimalFixed> for f64 {
-    fn from(value: DecimalFixed) -> Self {
-        value.to_f64()
+    /// Almost certainly a lossy conversion
+    fn from(input: DecimalFixed) -> Self {
+        if input.exponent == 0 {
+            input.value as f64
+        } else if input.exponent > 0 {
+            input.value as f64 * (10_i64.pow(input.exponent as u32)) as f64   
+        } else {
+            // This should hopefully not lose the decimal part
+            // TODO: Test this
+            input.value as f64 / (10_i64.pow((-input.exponent) as u32)) as f64
+        }
     }
 }
 

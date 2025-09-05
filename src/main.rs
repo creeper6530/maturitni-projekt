@@ -162,7 +162,8 @@ fn main() -> ! {
                 textbox.clear();
 
                 // XXX: If you change the stack type, you need to change this too
-                match txbx_data.as_str().parse::<DecimalFixed>() {
+                //match txbx_data.as_str().parse::<DecimalFixed>() {
+                match DecimalFixed::parse_static_exp(txbx_data.as_str(), -9) {
                     Ok(num) => {
                         match stack.push(num) {
                             Ok(_) => {
@@ -230,10 +231,11 @@ fn main() -> ! {
 
             '+' | '-' | '*' | '/' => {
                 if textbox.len() != 0 {
-                    let data = textbox.get_text();
+                    let txbx_data = textbox.get_text();
                     textbox.clear();
 
-                    let num_res = data.parse::<DecimalFixed>(); // XXX: If you change the stack type, you need to change this too
+                    //let num_res = data.parse::<DecimalFixed>(); // XXX: If you change the stack type, you need to change this too
+                    let num_res = DecimalFixed::parse_static_exp(txbx_data.as_str(), -9);
                     match num_res {
                         Ok(num) => {
                             match stack.push(num) {
@@ -267,7 +269,7 @@ fn main() -> ! {
                         match char_buf {
                             '+' => a + b,
                             '-' => a - b,
-                            '*' => a * b,
+                            '*' => a.priv_mul(b, true).unwrap(), // HACK: Don't unwrap()
                             '/' => { // FIXME: Division seems to be broken when dividing integers that don't divide evenly.
                                      /* For example 5 / 2 = 2.5, but we get 2; 
                                      However, 20.5 / 2 = 10.25, but we get 10.2 , so the exponent seems to be handled correctly, just there's not enough of it.
@@ -282,7 +284,7 @@ fn main() -> ! {
                                     textbox.draw(true);
                                     continue;
                                 } else {
-                                    a / b
+                                    a.priv_div(b, true).unwrap() // HACK: Don't unwrap()
                                 }
                             },
                             _ => defmt::unreachable!(), // We already checked this above
@@ -431,6 +433,44 @@ fn main() -> ! {
                 }
 
                 defmt::panic!("Stopped by user (Ctrl-C)");
+            },
+
+            '\x1B' => { // Escape character
+                let mut buf = [0_u8; 6]; // We read 6 bytes, because the escape sequence is usually up to 6 bytes long (not for all implementations, but for most common ones it is)
+                delay.delay_ms(50); // HACK: Wait a bit to allow the rest of the sequence to arrive.
+                let _ = rx.read_raw(&mut buf); // We ignore the result, since Ctrl-[ (that's Ctrl+ú on a Czech keyboard) produces only the escape character
+
+                // TODO: Maybe even move the cursor around in the textbox?
+
+                // See https://en.wikipedia.org/wiki/ANSI_escape_code?useskin=vector#Terminal_input_sequences for list of (common) escape sequences
+                match buf {
+                    [b'[', b'A', ..] => { // Up arrow
+                        info!("Up arrow pressed");
+                    },
+                    [b'[', b'B', ..] => { // Down arrow
+                        info!("Down arrow pressed");
+                    },
+                    [b'[', b'C', ..] => { // Right arrow
+                        info!("Right arrow pressed");
+                    },
+                    [b'[', b'D', ..] => { // Left arrow
+                        info!("Left arrow pressed");
+                    },
+                    [b'[', b'3', b'~', ..] => { // Delete key
+                        error!("Decide whether to implement Delete key as a backspace alias or something else (like dropping the top of the stack?)");
+                    },
+                    _ => {
+                        warn!("Unhandled escape sequence received over UART: {:?}", &buf);
+                        continue; // Ignore the sequence
+                    }
+                }
+
+                debug!("Escape sequence received over UART: {:?}", core::str::from_utf8(&buf).unwrap_or("Invalid UTF-8"));
+            },
+
+            'B' => {
+                // Here should be a breakpoint for debugging purposes, just to make it easier to break into the debugger
+                debug!("Breakpoint!");
             },
 
             _ => {

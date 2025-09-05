@@ -1,6 +1,3 @@
-- Handle non-integers.
-  - Current idea: multiply everything by 10^9 and keep them as ints, by that making decimal fixed-point for 9 decimal places
-  - That would need to be handled while drawing the stack and doing numerical ops
 - Get better error handling, no unwrap()-s, or at the very least expect()-s. Panics are for irrecoverable catastrophes.
   - Get a better way to show error than polluting the textbox. Leading idea: show a black `E` in a white square in the top right corner, or for grave errors clear screen white and show a big `ERROR` text before resetting with `cortex_m::peripheral::SCB::sys_reset()` (after a delay, of course).
   - Especially handle overflows when doing number shit. Currently we have overflow checks in both `debug` and `release` targets, but that's again a panic...
@@ -13,4 +10,10 @@
 - Figure out a way to do UART receiving asynchronously – without polling, but interrupts, DMA or similar funsies. Just so that we don't block and can go to WFI/WFE sleep.
   - I already tried something and failed miserable. That's why we poll ATM.
 - Make a common file for all constants instead of them being spread around `stack.rs`, `textbox.rs` and `main.rs`, or at least add runtime checks that matching consts equal.
-- 
+- Allow a const to configure the default precision of `DecimalFixed`
+- Add some functionality to the ANSI escape codes
+  - Arrow keys could move the cursor in the textbox
+  - Delete key could either operate on the textbox, alias Backspace or drop the topmost item from the stack (alias Shift-D)
+  - Maybe use PgUp and PgDn keys to scroll through the stack's preview?
+  - F-keys are ANSI escaped and could be used for more advanced functions instead of letter keys
+  - See [ANSI escape code#Terminal input sequence](https://en.wikipedia.org/wiki/ANSI_escape_code?useskin=vector#Terminal_input_sequences) for more details
