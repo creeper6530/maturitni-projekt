@@ -124,9 +124,7 @@ fn main() -> ! {
     
     // Here we're basically just flexing that we can use DMA :D
     let dma = peri.DMA.split(&mut peri.RESETS);
-    let _tx_transfer = DmaSingleBufferConfig::new(dma.ch0, b"\x1b[2J\x1b[HUART initialised!\r\n", tx).start(); // Send a message over UART using DMA, also clear the terminal (VT100 codes)
-    // We don't need the channel or the transmitter anymore, so we don't wait for the transfer to complete
-    //let (_ch0, _, _tx) = tx_transfer.wait(); // So that we can reuse them
+    let tx_transfer = DmaSingleBufferConfig::new(dma.ch0, b"\x1b[2J\x1b[HUART initialised!\r\n", tx).start(); // Send a message over UART using DMA, also clear the terminal (VT100 codes)
 
     // ----------------------------------------------------------------------------
 
@@ -140,10 +138,16 @@ fn main() -> ! {
     //stack.push_slice(&[5, 6, 7, 8, 9, 10]).unwrap();
     //textbox.append_str("DEBUG TEXTBOX DEBUG!").unwrap();
 
+    trace!("Stack and textbox initialized, showing off the logo for a bit");
+
     delay.delay_ms(200); // Just to show the Rust logo for a bit
     stack.draw(false);
     textbox.draw(true);
 
+    trace!("Waiting for initial DMA transfer to complete, should be instant");
+    let (ch0, _, tx) = tx_transfer.wait(); // So that we can reuse them. We don't really care about reclaiming the &'static buffer tho, so we ignore it
+    trace!("Finished waiting");
+    let _new_tx_transfer = DmaSingleBufferConfig::new(ch0, b"Entering main loop\r\n", tx).start(); // Send another message with DMA, this time we don't need to reclaim the channel, so we don't wait for it to finish
     info!("Entering main loop");
 
     loop {

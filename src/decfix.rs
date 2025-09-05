@@ -1,6 +1,6 @@
 use defmt::Format;
 #[allow(unused_imports)]
-use defmt::{trace, debug, info, warn, error, panic, unreachable, unimplemented};
+use defmt::{trace, debug, info, warn, error, panic, unreachable, unimplemented, todo};
 use heapless::format;
 use core::{fmt::Display, ops::{Add, Sub, Mul, Div}, str::FromStr};
 
@@ -81,22 +81,27 @@ impl DecimalFixed {
     pub fn parse_static_exp(s: &str, exp: i8) -> Result<Self, ()> {
         match s.find('.') {
             Some(dot_index) => {
-                let (whole_part_str, fractional_part_str) = s.split_at(dot_index);
-                let mut fractional_part_str = &fractional_part_str[1..]; // Skip the dot
+                let (whole_part_str, mut fractional_part_str) = s.split_at(dot_index);
+                fractional_part_str = &fractional_part_str[1..]; // Skip the dot
 
                 let whole_part = whole_part_str.parse::<i64>().map_err(|_| ())?;
                 let fractional_part = if fractional_part_str.is_empty() {
                     0
                 } else {
                     let buf_string;
+                    if exp >= 0 { todo!() } // TODO: Handle this case if needed; meanwhile we just panic
+
                     // Transform the fractional part to be (-exp) digits long - either pad at the end or truncate
-                    if fractional_part_str.len() > 9 { // Truncate
-                        if exp > 0 { return Err(()) }
+                    if fractional_part_str.len() > (-exp as usize) { // Truncate
                         fractional_part_str = &fractional_part_str[..(-exp as usize)];
-                        debug_assert_eq!(fractional_part_str.len(), 9);
-                    } else if fractional_part_str.len() < 9 { // Pad
-                        buf_string = format!(10; "{:0<10}", fractional_part_str).map_err(|_| ())?;
+
+                        // Sanity check - this should always be true
+                        debug_assert_eq!(fractional_part_str.len(), -exp as usize);
+                    } else if fractional_part_str.len() < (-exp as usize) { // Pad
+                        buf_string = format!(20; "{:0<width$}", fractional_part_str, width = (-exp) as usize).map_err(|_| ())?;
                         fractional_part_str = buf_string.as_str();
+
+                        debug_assert_eq!(fractional_part_str.len(), -exp as usize);
                     } /*else {
                         // do nothing
                     }*/
