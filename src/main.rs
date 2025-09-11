@@ -25,12 +25,12 @@ use hal::{
 use rp2040_hal::fugit::RateExtU32; // For the `.kHz()` method on u32 integers
 
 // Display imports
-use embedded_graphics::{prelude::*, image::Image, pixelcolor::BinaryColor};
-use ssd1306::{prelude::*, Ssd1306};
+use embedded_graphics::{image::Image, prelude::*};
+use ssd1306::{prelude::*, Ssd1306, mode::BufferedGraphicsMode};
 use tinybmp::Bmp;
 
 use core::cell::RefCell;
-//use core::ops::DerefMut;
+use core::ops::DerefMut;
 
 mod stack;
 use stack::*;
@@ -128,7 +128,7 @@ fn main() -> ! {
 
     // ----------------------------------------------------------------------------
 
-    let disp_refcell = RefCell::new(disp);
+    let disp_refcell: RefCell<Ssd1306<I2CInterface<rp2040_hal::I2C<pac::I2C0, (rp2040_hal::gpio::Pin<rp2040_hal::gpio::bank0::Gpio8, rp2040_hal::gpio::FunctionI2c, rp2040_hal::gpio::PullUp>, rp2040_hal::gpio::Pin<rp2040_hal::gpio::bank0::Gpio9, rp2040_hal::gpio::FunctionI2c, rp2040_hal::gpio::PullUp>)>>, DisplaySize128x64, ssd1306::mode::BufferedGraphicsMode<DisplaySize128x64>>> = RefCell::new(disp);
     // Range of i32 is `-2147483648..=2147483647`
     let mut stack: CustomStack<'_, DecimalFixed, _, _> = CustomStackBuilder::<'_, DecimalFixed, _, _>::new(&disp_refcell) // We're using the turbofish syntax here
         .build();
@@ -177,16 +177,14 @@ fn main() -> ! {
                             },
                             Err(e) => {
                                 error!("Failed to push number onto stack: {:?}", e);
-                                textbox.append_str("Err").unwrap(); // HACK: Show error on display in a better way than contaminating the textbox
-                                textbox.draw(true);
+                                disp_error(&disp_refcell, false, None);
                             },
                         };
                     },
                     Err(_) => {
                         error!("Failed to parse input as number (ParseIntError)");
-                        warn!("This should normally be impossible, textbox must be contaminated");
-                        textbox.append_str("Err").unwrap(); // HACK: Show error on display in a better way than contaminating the textbox... again
-                        textbox.draw(true);
+                        error!("This should normally be impossible, textbox must be contaminated");
+                        disp_error(&disp_refcell, true, Some(&mut delay));
                     },
                 };
             },
@@ -422,21 +420,8 @@ fn main() -> ! {
             },
 
             '\x03' => { // Ctrl-C
-                // XXX: Add potential explicit cleanup code here
-                drop(stack);
-                drop(textbox);
-                {
-                    trace!("Consuming the refcell and deinitializing the display");
-                    let mut disp = disp_refcell.into_inner();
-                    disp.clear(BinaryColor::Off).unwrap();
-                    disp.flush().unwrap();
-                    disp.set_display_on(false).unwrap();
-                    disp.release() // Release the I²C interface
-                    .release() // Release the I²C peripheral
-                    .free(&mut peri.RESETS); // Free the I²C peripheral
-                }
-
-                defmt::panic!("Stopped by user (Ctrl-C)");
+                defmt::error!("Stopped by user (Ctrl-C)");
+                disp_error(&disp_refcell, true, None);
             },
 
             '\x1B' => { // Escape character
@@ -472,8 +457,8 @@ fn main() -> ! {
                 debug!("Escape sequence received over UART: {:?}", core::str::from_utf8(&buf).unwrap_or("Invalid UTF-8"));
             },
 
-            'B' => {
-                // Here should be a breakpoint for debugging purposes, just to make it easier to break into the debugger
+            '\x02' => { // Ctrl-B
+                // Here should be a breakpoint for debugging purposes, just to make it easier to break into the debugger while not doing anything
                 debug!("Breakpoint!");
             },
 
@@ -483,4 +468,48 @@ fn main() -> ! {
             },
         }
     };
+}
+
+
+/// Display a simple error indication on the display.
+/// If `grave` is true, it inverts the display to indicate a grave error and resets,
+/// otherwise it only shows a simple error indication.
+pub fn disp_error<'a, DI, SIZE>(disp_refcell: &'a RefCell<Ssd1306<DI, SIZE, BufferedGraphicsMode<SIZE>>>, grave: bool, maybe_delay: Option<&mut cortex_m::delay::Delay>) -> () 
+where 
+    DI: WriteOnlyDataCommand,
+    SIZE: DisplaySize,
+{
+    let mut disp = disp_refcell.borrow_mut();
+
+    if grave {// Converted at https://convertico.com/png-to-bmp/ to 1-bit BMP
+        let bmp = Bmp::from_slice(include_bytes!("calc_grave_err.bmp")).unwrap();
+        let img = Image::new(
+            &bmp,
+            (0, 0).into(), // Fullscreen
+        );
+        img.draw(disp.deref_mut()).unwrap();
+        disp.flush().unwrap();
+
+        match maybe_delay {
+            Some(delay) => {
+                delay.delay_ms(10_000);
+                cortex_m::peripheral::SCB::sys_reset(); // Reset the microcontroller
+            },
+            None => {
+                defmt::panic!("No delay provider given, cannot delay before reset. Halting.");
+            },
+        };
+    } else {
+        let bmp = Bmp::from_slice(include_bytes!("calc_err.bmp")).unwrap();
+        let img = Image::new(
+            &bmp,
+            (117, 0).into(), // Image is 10x10, we put it in the top-right corner
+        );
+        img.draw(disp.deref_mut()).unwrap();
+        disp.flush().unwrap();
+    }
+}
+
+pub const fn text_offset(text_len: u32, display_width: u32, font_width: u32) -> u32 {
+    (display_width - (text_len * font_width)) / 2
 }
