@@ -195,18 +195,13 @@ fn main() -> ! {
 
                 if textbox.is_empty() {
                     info!("Ignoring backspace on empty textbox");
-                    continue;
-                }
-                match textbox.backspace(1) {
-                    Ok(_) => {},
-                    Err(_) => {
-                        error!("Failed to backspace textbox");
-                        textbox.append_str("Err").unwrap(); // HACK
-                        textbox.draw(true);
-                        continue;
-                    },
+                } else if textbox.backspace(1).is_err() { // We do the backspace anyways, if it's Ok, we just carry on
+                    error!("Failed to backspace textbox");
+                    error!("This should normally be impossible, we already checked it's not empty");
+                    disp_error(&disp_refcell, true, Some(&mut delay));
+                } else {
+                    textbox.draw(true);
                 };
-                textbox.draw(true);
                 continue;
             },
 
@@ -237,25 +232,21 @@ fn main() -> ! {
                     textbox.clear();
 
                     //let num_res = data.parse::<DecimalFixed>(); // XXX: If you change the stack type, you need to change this too
-                    let num_res = DecimalFixed::parse_static_exp(txbx_data.as_str(), -9);
-                    match num_res {
+                    match DecimalFixed::parse_static_exp(txbx_data.as_str(), -9) {
                         Ok(num) => {
                             match stack.push(num) {
                                 Ok(_) => {}, // Do nothing
                                 Err(e) => {
                                     error!("Failed to push number onto stack: {:?}", e);
-                                    textbox.append_str("Err").unwrap(); // HACK
-                                    textbox.draw(true);
+                                    disp_error(&disp_refcell, false, None);
                                     continue; // There's something beyond this if-statement, so we need to avoid executing it because we encountered an error
                                 },
                             };
                         },
-                        Err(_e) => {
+                        Err(_) => {
                             error!("Failed to parse input as number (ParseIntError)");
-                            warn!("This should normally be impossible, textbox must be contaminated");
-                            textbox.append_str("Err").unwrap(); // HACK
-                            textbox.draw(true);
-                            continue;
+                            error!("This should normally be impossible, textbox must be contaminated");
+                            disp_error(&disp_refcell, true, Some(&mut delay));
                         },
                     };
                 }
@@ -265,7 +256,7 @@ fn main() -> ! {
                 let b_res = stack.pop();
                 let a_res = stack.pop();
 
-                let c = match (a_res, b_res) {
+                let c: DecimalFixed = match (a_res, b_res) {
                     (Some(a), Some(b)) => {
 
                         match char_buf {
@@ -282,8 +273,7 @@ fn main() -> ! {
                                      Also interesting is that 5.0 / 2 gives correct 2.5, but 5.0 / 2.0 gives 2 */
                                 if b.is_zero() {
                                     error!("Division by zero");
-                                    textbox.append_str("Err").unwrap(); // HACK
-                                    textbox.draw(true);
+                                    disp_error(&disp_refcell, false, None);
                                     continue;
                                 } else {
                                     a.priv_div(b, true).unwrap() // HACK: Don't unwrap()
@@ -295,12 +285,15 @@ fn main() -> ! {
                     },
                     (None, Some(_)) | (None, None) => {
                         error!("Failed to pop number from stack");
-                        textbox.append_str("Err").unwrap(); // HACK
                         stack.draw(false); // Redraw stack because we popped something
-                        textbox.draw(true);
+                        disp_error(&disp_refcell, false, None); // Must be after stack is drawn in order not to be overdrawn. Always flushes.
                         continue;
                     },
-                    (Some(_), None) => defmt::unreachable!(), // This should be impossible. How can we first fail but then succeed?
+                    (Some(_), None) => {
+                        error!("This should be impossible. How can we first fail but then succeed?");
+                        disp_error(&disp_refcell, true, Some(&mut delay));
+                        defmt::unreachable!() // To shut the compiler up about match arms having imcompatible statements, when the previous never returns, but resets.
+                    }
                 };
 
                 match stack.push(c) {
@@ -310,8 +303,7 @@ fn main() -> ! {
                     },
                     Err(_) => {
                         error!("Failed to push result onto stack");
-                        textbox.append_str("Err").unwrap(); // HACK
-                        textbox.draw(true);
+                        disp_error(&disp_refcell, false, None);
                         continue;
                     },
                 };
@@ -339,8 +331,7 @@ fn main() -> ! {
                                 Ok(_) => {},
                                 Err(e) => {
                                     error!("Failed to push number onto stack: {:?}", e);
-                                    textbox.append_str("Err").unwrap(); // HACK
-                                    textbox.draw(true);
+                                    disp_error(&disp_refcell, false, None);
                                     continue;
                                 },
                             };
@@ -350,8 +341,7 @@ fn main() -> ! {
                     },
                     None => {
                         error!("Failed to duplicate top element of stack: stack is empty");
-                        textbox.append_str("Err").unwrap(); // HACK
-                        textbox.draw(true);
+                        disp_error(&disp_refcell, false, None);
                         continue;
                     },
                 };
@@ -382,8 +372,7 @@ fn main() -> ! {
                             Ok(_) => {},
                             Err(e) => {
                                 error!("Failed to push number onto stack: {:?}", e);
-                                textbox.append_str("Err").unwrap(); // HACK
-                                textbox.draw(true);
+                                disp_error(&disp_refcell, false, None);
                                 continue;
                             },
                         };
@@ -391,8 +380,7 @@ fn main() -> ! {
                             Ok(_) => {},
                             Err(e) => {
                                 error!("Failed to push number onto stack: {:?}", e);
-                                textbox.append_str("Err").unwrap(); // HACK
-                                textbox.draw(true);
+                                disp_error(&disp_refcell, false, None);
                                 continue;
                             },
                         };
@@ -405,8 +393,7 @@ fn main() -> ! {
                             Ok(_) => {},
                             Err(e) => {
                                 error!("Failed to push number onto stack: {:?}", e);
-                                textbox.append_str("Err").unwrap(); // HACK
-                                textbox.draw(true);
+                                disp_error(&disp_refcell, false, None);
                                 continue;
                             },
                         };
@@ -415,13 +402,16 @@ fn main() -> ! {
                         info!("Failed to swap top two elements of stack: stack is empty. Not an error, only ignoring.");
                         continue;
                     },
-                    (Some(_), None) => defmt::unreachable!(),
+                    (Some(_), None) => {
+                        error!("This should be impossible. How can we first fail but then succeed?");
+                        disp_error(&disp_refcell, true, Some(&mut delay));
+                    },
                 };
             },
 
             '\x03' => { // Ctrl-C
                 defmt::error!("Stopped by user (Ctrl-C)");
-                disp_error(&disp_refcell, true, None);
+                disp_error(&disp_refcell, true, None); // We don't reset, just panic.
             },
 
             '\x1B' => { // Escape character
@@ -474,7 +464,7 @@ fn main() -> ! {
 /// Display a simple error indication on the display.
 /// If `grave` is true, it inverts the display to indicate a grave error and resets,
 /// otherwise it only shows a simple error indication.
-pub fn disp_error<'a, DI, SIZE>(disp_refcell: &'a RefCell<Ssd1306<DI, SIZE, BufferedGraphicsMode<SIZE>>>, grave: bool, maybe_delay: Option<&mut cortex_m::delay::Delay>) -> () 
+pub fn disp_error<'a, DI, SIZE>(disp_refcell: &'a RefCell<Ssd1306<DI, SIZE, BufferedGraphicsMode<SIZE>>>, grave: bool, maybe_delay: Option<&mut cortex_m::delay::Delay>) -> ()
 where 
     DI: WriteOnlyDataCommand,
     SIZE: DisplaySize,
