@@ -158,7 +158,7 @@ fn main() -> ! {
 
         match char_buf {
             '\r' | '\n' => { // Enter or newline
-                if textbox.len() == 0 {
+                if textbox.is_empty() {
                     continue; // Ignore empty textbox
                 }
 
@@ -193,9 +193,9 @@ fn main() -> ! {
                 #[cfg(debug_assertions)]
                 debug!("Backspace character received: (0x{:X})", buf[0]);
 
-                if textbox.len() == 0 {
+                if textbox.is_empty() {
                     info!("Ignoring backspace on empty textbox");
-                    continue; // Ignore backspace on empty textbox
+                    continue;
                 }
                 match textbox.backspace(1) {
                     Ok(_) => {},
@@ -211,14 +211,14 @@ fn main() -> ! {
             },
 
             '.' | ',' => { // Decimal point
-                if textbox.len() == 0 {
+                if textbox.is_empty() {
                     textbox.append_str("0.").unwrap();
                     textbox.draw(true);
                     continue;
                 }
                 if textbox.contains('.') {
                     warn!("Ignoring decimal point, textbox already contains one");
-                    continue; // Ignore decimal point if there's already one in the textbox
+                    continue;
                 }
                 textbox.append_char('.').unwrap();
                 textbox.draw(true);
@@ -232,7 +232,7 @@ fn main() -> ! {
             },
 
             '+' | '-' | '*' | '/' => {
-                if textbox.len() != 0 {
+                if !textbox.is_empty() {
                     let txbx_data = textbox.get_text();
                     textbox.clear();
 

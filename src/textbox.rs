@@ -341,4 +341,8 @@ where
     pub fn len(&self) -> usize {
         return self.text.len();
     }
+
+    pub fn is_empty(&self) -> bool {
+        self.text.len() == 0
+    }
 }
