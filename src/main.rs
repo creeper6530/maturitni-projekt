@@ -135,12 +135,9 @@ fn main() -> ! {
     let mut textbox: _ = CustomTextboxBuilder::new(&disp_refcell)
         .build();
 
-    //stack.push_slice(&[5, 6, 7, 8, 9, 10]).unwrap();
-    //textbox.append_str("DEBUG TEXTBOX DEBUG!").unwrap();
-
     trace!("Stack and textbox initialized, showing off the logo for a bit");
-
     delay.delay_ms(200); // Just to show the Rust logo for a bit
+
     stack.draw(false);
     textbox.draw(true);
 
@@ -162,31 +159,17 @@ fn main() -> ! {
                     continue; // Ignore empty textbox
                 }
 
-                let txbx_data = textbox.get_text();
-                textbox.clear();
+                if let Err(grave) = parse_textbox(&mut textbox, &mut stack, true) {
+                    if grave {
+                        disp_grave_error(&disp_refcell, Some(&mut delay))
+                    } else {
+                        // This has to come first, else the stack would overdraw the error indication
+                        stack.draw(false);
+                        textbox.draw(true);
 
-                // XXX: If you change the stack type, you need to change this too
-                //match txbx_data.as_str().parse::<DecimalFixed>() {
-                match DecimalFixed::parse_static_exp(txbx_data.as_str(), -9) {
-                    Ok(num) => {
-                        match stack.push(num) {
-                            Ok(_) => {
-                                // We save ourselves a double flush call when drawing both, because I²C ops are slow and blocking
-                                stack.draw(false);
-                                textbox.draw(true);
-                            },
-                            Err(e) => {
-                                error!("Failed to push number onto stack: {:?}", e);
-                                disp_error(&disp_refcell, false, None);
-                            },
-                        };
-                    },
-                    Err(_) => {
-                        error!("Failed to parse input as number (ParseIntError)");
-                        error!("This should normally be impossible, textbox must be contaminated");
-                        disp_error(&disp_refcell, true, Some(&mut delay));
-                    },
-                };
+                        disp_error(&disp_refcell);
+                    }
+                } // Else it's already drawn
             },
 
             '\u{8}' | '\u{7F}' => { // Backspace or Delete
@@ -194,15 +177,16 @@ fn main() -> ! {
                 debug!("Backspace character received: (0x{:X})", buf[0]);
 
                 if textbox.is_empty() {
-                    info!("Ignoring backspace on empty textbox");
-                } else if textbox.backspace(1).is_err() { // We do the backspace anyways, if it's Ok, we just carry on
+                    info!("Ignoring backspace on empty textbox.");
+                    continue; // Diverging, does not continue forwards
+                };
+                if textbox.backspace(1).is_err() {
                     error!("Failed to backspace textbox");
                     error!("This should normally be impossible, we already checked it's not empty");
-                    disp_error(&disp_refcell, true, Some(&mut delay));
-                } else {
-                    textbox.draw(true);
+                    disp_grave_error(&disp_refcell, Some(&mut delay)); // Diverging too
                 };
-                continue;
+                textbox.draw(true);
+
             },
 
             '.' | ',' => { // Decimal point
@@ -215,40 +199,36 @@ fn main() -> ! {
                     warn!("Ignoring decimal point, textbox already contains one");
                     continue;
                 }
-                textbox.append_char('.').unwrap();
+                if textbox.append_char('.').is_err() {
+                    // All the warnings were already emitted in the `append_char()` method
+                    disp_error(&disp_refcell);
+                    continue;
+                }
                 textbox.draw(true);
-                continue;
             },
 
             '0'..='9' => { // Digits
-                textbox.append_char(char_buf).unwrap();
+                if textbox.append_char(char_buf).is_err() {
+                    disp_error(&disp_refcell);
+                    continue;
+                };
                 textbox.draw(true);
-                continue;
             },
 
             '+' | '-' | '*' | '/' => {
                 if !textbox.is_empty() {
-                    let txbx_data = textbox.get_text();
-                    textbox.clear();
+                    if let Err(grave) = parse_textbox(&mut textbox, &mut stack, false) {
+                        if grave {
+                            disp_grave_error(&disp_refcell, Some(&mut delay))
+                        } else {
+                            // This has to come first, else the stack would overdraw the error indication
+                            stack.draw(false);
+                            textbox.draw(true);
 
-                    //let num_res = data.parse::<DecimalFixed>(); // XXX: If you change the stack type, you need to change this too
-                    match DecimalFixed::parse_static_exp(txbx_data.as_str(), -9) {
-                        Ok(num) => {
-                            match stack.push(num) {
-                                Ok(_) => {}, // Do nothing
-                                Err(e) => {
-                                    error!("Failed to push number onto stack: {:?}", e);
-                                    disp_error(&disp_refcell, false, None);
-                                    continue; // There's something beyond this if-statement, so we need to avoid executing it because we encountered an error
-                                },
-                            };
-                        },
-                        Err(_) => {
-                            error!("Failed to parse input as number (ParseIntError)");
-                            error!("This should normally be impossible, textbox must be contaminated");
-                            disp_error(&disp_refcell, true, Some(&mut delay));
-                        },
-                    };
+                            disp_error(&disp_refcell);
+                            continue;
+                        }
+                    } // Else it's already drawn
                 }
 
                 // Since the stack is LIFO, the A is the one pushed earlier, so it is popped later
@@ -258,7 +238,6 @@ fn main() -> ! {
 
                 let c: DecimalFixed = match (a_res, b_res) {
                     (Some(a), Some(b)) => {
-
                         match char_buf {
                             '+' => a + b,
                             '-' => a - b,
@@ -273,7 +252,7 @@ fn main() -> ! {
                                      Also interesting is that 5.0 / 2 gives correct 2.5, but 5.0 / 2.0 gives 2 */
                                 if b.is_zero() {
                                     error!("Division by zero");
-                                    disp_error(&disp_refcell, false, None);
+                                    disp_error(&disp_refcell);
                                     continue;
                                 } else {
                                     a.priv_div(b, true).unwrap() // HACK: Don't unwrap()
@@ -281,83 +260,89 @@ fn main() -> ! {
                             },
                             _ => defmt::unreachable!(), // We already checked this above
                         }
-
                     },
+
                     (None, Some(_)) | (None, None) => {
+                        // TODO: Perhaps push the one popped number back like in swap?
                         error!("Failed to pop number from stack");
                         stack.draw(false); // Redraw stack because we popped something
-                        disp_error(&disp_refcell, false, None); // Must be after stack is drawn in order not to be overdrawn. Always flushes.
+                        disp_error(&disp_refcell); // Must be after stack is drawn in order not to be overdrawn. Always flushes.
                         continue;
                     },
+
                     (Some(_), None) => {
                         error!("This should be impossible. How can we first fail but then succeed?");
-                        disp_error(&disp_refcell, true, Some(&mut delay));
-                        defmt::unreachable!() // To shut the compiler up about match arms having imcompatible statements, when the previous never returns, but resets.
+                        disp_grave_error(&disp_refcell, Some(&mut delay));
                     }
                 };
 
-                match stack.push(c) {
-                    Ok(_) => {
-                        stack.draw(false);
-                        textbox.draw(true);
-                    },
-                    Err(_) => {
-                        error!("Failed to push result onto stack");
-                        disp_error(&disp_refcell, false, None);
-                        continue;
-                    },
+                if stack.push(c).is_ok() {
+                    stack.draw(false);
+                    textbox.draw(true);
+                } else {
+                    error!("Failed to push result onto stack");
+                    error!("This should be impossible, the stack should have enough space since we already popped from it.");
+                    disp_grave_error(&disp_refcell, Some(&mut delay));
                 };
             },
 
             'c' => { // Clear textbox
+                if textbox.is_empty() {
+                    info!("Textbox is empty. Ignoring.");
+                    continue;
+                }
                 textbox.clear();
                 textbox.draw(true);
-                continue;
             },
 
             'C' => { // Clear everything (we assume the Shift-C is enough of a modifier)
-                textbox.clear();
-                stack.clear();
-                textbox.draw(false);
-                stack.draw(true);
-                continue;
+                match (textbox.is_empty(), stack.is_empty()) {
+                    (true, true) => {
+                        info!("Both stack and textbox are empty. Ignoring both.");
+                    },
+                    (true, false) => {
+                        info!("Textbox is empty. Ignoring it.");
+                        stack.clear();
+                        stack.draw(true);
+                    },
+                    (false, true) => {
+                        info!("Stack is empty. Ignoring it.");
+                        textbox.clear();
+                        textbox.draw(true);
+                    },
+                    (false, false) => {
+                        textbox.clear();
+                        stack.clear();
+                        textbox.draw(false);
+                        stack.draw(true);
+                    }
+                }
             },
 
             'd' => { // Duplicate the top element of the stack
-                match stack.pop() {
-                    Some(val) => {
-                        for _ in 0..2 { // We pop once, so we need to push twice to duplicate
-                            match stack.push(val) {
-                                Ok(_) => {},
-                                Err(e) => {
-                                    error!("Failed to push number onto stack: {:?}", e);
-                                    disp_error(&disp_refcell, false, None);
-                                    continue;
-                                },
-                            };
+                if let Some(val) = stack.pop() {
+                    for _ in 0..2 { // Two times
+                        if let Err(e) = stack.push(val) {
+                            error!("Failed to push number onto stack: {:?}", e);
+                            disp_error(&disp_refcell);
+                            continue;
                         }
-                        stack.draw(true);
-                        continue;
-                    },
-                    None => {
-                        error!("Failed to duplicate top element of stack: stack is empty");
-                        disp_error(&disp_refcell, false, None);
-                        continue;
-                    },
-                };
+                    }
+                    stack.draw(true)
+                } else {
+                    warn!("Failed to duplicate top element of stack: stack is empty");
+                    disp_error(&disp_refcell);
+                    continue;
+                }
             },
 
             'D' => { // Drop the topmost element of the stack
-                match stack.pop() {
-                    Some(_) => {
-                        stack.draw(true);
-                        continue;
-                    },
-                    None => {
-                        info!("Failed to drop top element of stack: stack is empty. Not an error, only ignoring.");
-                        continue;
-                    },
+                if stack.pop().is_none() {
+                    warn!("Failed to drop top element of stack: stack is empty.");
+                    disp_error(&disp_refcell);
+                    continue;
                 };
+                stack.draw(true)
             },
 
             's' => { // Swap the top two elements of the stack
@@ -367,51 +352,50 @@ fn main() -> ! {
 
                 match (option_a, option_b) {
                     (Some(a), Some(b)) => {
-                        // Earlier B was pushed later, so it is now pushed irst
-                        match stack.push(b) {
-                            Ok(_) => {},
-                            Err(e) => {
-                                error!("Failed to push number onto stack: {:?}", e);
-                                disp_error(&disp_refcell, false, None);
-                                continue;
-                            },
+                        // Earlier B was pushed later, so it is now pushed first
+                        if let Err(e) = stack.push(b) {
+                            error!("Failed to push number onto stack: {:?}.", e);
+                            error!("This should be impossible, the stack should have enough space since we already popped from it.");
+                            disp_grave_error(&disp_refcell, Some(&mut delay));
                         };
-                        match stack.push(a) {
-                            Ok(_) => {},
-                            Err(e) => {
-                                error!("Failed to push number onto stack: {:?}", e);
-                                disp_error(&disp_refcell, false, None);
-                                continue;
-                            },
+                        if let Err(e) = stack.push(a) {
+                            error!("Failed to push number onto stack: {:?}", e);
+                            error!("This should be impossible, the stack should have enough space since we already popped from it.");
+                            disp_grave_error(&disp_refcell, Some(&mut delay));
                         };
                         stack.draw(true);
-                        continue;
                     },
                     (None, Some(a)) => {
-                        info!("Failed to swap top two elements of stack: stack has only one element. Not an error, only ignoring.");
-                        match stack.push(a) {
-                            Ok(_) => {},
-                            Err(e) => {
-                                error!("Failed to push number onto stack: {:?}", e);
-                                disp_error(&disp_refcell, false, None);
-                                continue;
-                            },
-                        };
+                        warn!("Failed to swap top two elements of stack: stack has only one element.");
+                        if let Err(e) = stack.push(a) {
+                            error!("Failed to push number onto stack: {:?}", e);
+                            error!("This should be impossible, the stack should have enough space since we already popped from it.");
+                            disp_grave_error(&disp_refcell, Some(&mut delay));
+                        }
                     },
                     (None, None) => {
-                        info!("Failed to swap top two elements of stack: stack is empty. Not an error, only ignoring.");
-                        continue;
+                        warn!("Failed to swap top two elements of stack: stack is empty.");
+                        disp_error(&disp_refcell)
                     },
                     (Some(_), None) => {
                         error!("This should be impossible. How can we first fail but then succeed?");
-                        disp_error(&disp_refcell, true, Some(&mut delay));
+                        disp_grave_error(&disp_refcell, Some(&mut delay));
                     },
                 };
             },
 
+            'r' => { // Force a redraw of both textbox and stack
+                // Amongst other effects, this clears the non-grave error icon
+                info!("Doing a forced redraw of both stack and textbox.");
+                
+                // Just to be ultra-sure, we flush both
+                stack.draw(true);
+                textbox.draw(true);
+            },
+
             '\x03' => { // Ctrl-C
-                defmt::error!("Stopped by user (Ctrl-C)");
-                disp_error(&disp_refcell, true, None); // We don't reset, just panic.
+                error!("Stopped by user (Ctrl-C)");
+                disp_grave_error(&disp_refcell, None); // We don't reset, just panic.
             },
 
             '\x1B' => { // Escape character
@@ -438,9 +422,13 @@ fn main() -> ! {
                     [b'[', b'3', b'~', ..] => { // Delete key
                         error!("Decide whether to implement Delete key as a backspace alias or something else (like dropping the top of the stack?)");
                     },
+                    [b'\x03', ..] => { // Ctrl-Alt-C
+                        // Like Ctrl-C, but with `Some(&mut delay)`
+                        error!("Stopped by user (Ctrl-Alt-C). Delaying before reset.");
+                        disp_grave_error(&disp_refcell, Some(&mut delay));
+                    },
                     _ => {
                         warn!("Unhandled escape sequence received over UART: {:?}", &buf);
-                        continue; // Ignore the sequence
                     }
                 }
 
@@ -464,42 +452,86 @@ fn main() -> ! {
 /// Display a simple error indication on the display.
 /// If `grave` is true, it inverts the display to indicate a grave error and resets,
 /// otherwise it only shows a simple error indication.
-pub fn disp_error<'a, DI, SIZE>(disp_refcell: &'a RefCell<Ssd1306<DI, SIZE, BufferedGraphicsMode<SIZE>>>, grave: bool, maybe_delay: Option<&mut cortex_m::delay::Delay>) -> ()
+pub fn disp_grave_error<'a, DI, SIZE>(
+    disp_refcell: &'a RefCell<Ssd1306<DI, SIZE, BufferedGraphicsMode<SIZE>>>,
+    maybe_delay: Option<&mut cortex_m::delay::Delay>
+) -> !
 where 
     DI: WriteOnlyDataCommand,
     SIZE: DisplaySize,
 {
     let mut disp = disp_refcell.borrow_mut();
 
-    if grave {// Converted at https://convertico.com/png-to-bmp/ to 1-bit BMP
-        let bmp = Bmp::from_slice(include_bytes!("calc_grave_err.bmp")).unwrap();
-        let img = Image::new(
-            &bmp,
-            (0, 0).into(), // Fullscreen
-        );
-        img.draw(disp.deref_mut()).unwrap();
-        disp.flush().unwrap();
+    // Converted at https://convertico.com/png-to-bmp/ to 1-bit BMP
+    let bmp = Bmp::from_slice(include_bytes!("calc_grave_err.bmp")).unwrap();
+    let img = Image::new(
+        &bmp,
+        (0, 0).into(), // Fullscreen
+    );
+    img.draw(disp.deref_mut()).unwrap();
+    disp.flush().unwrap();
 
-        match maybe_delay {
-            Some(delay) => {
-                delay.delay_ms(10_000);
-                cortex_m::peripheral::SCB::sys_reset(); // Reset the microcontroller
-            },
-            None => {
-                defmt::panic!("No delay provider given, cannot delay before reset. Halting.");
-            },
-        };
-    } else {
-        let bmp = Bmp::from_slice(include_bytes!("calc_err.bmp")).unwrap();
-        let img = Image::new(
-            &bmp,
-            (117, 0).into(), // Image is 10x10, we put it in the top-right corner
-        );
-        img.draw(disp.deref_mut()).unwrap();
-        disp.flush().unwrap();
-    }
+    maybe_delay.expect("No delay provider given, cannot delay before reset. Panicking.")
+        .delay_ms(10_000);
+    cortex_m::peripheral::SCB::sys_reset(); // Reset the microcontroller
+}
+
+pub fn disp_error<'a, DI, SIZE> (
+    disp_refcell: &'a RefCell<Ssd1306<DI, SIZE, BufferedGraphicsMode<SIZE>>>,
+) -> ()
+where
+    DI: WriteOnlyDataCommand,
+    SIZE: DisplaySize,
+{
+    let mut disp = disp_refcell.borrow_mut();
+
+    let bmp = Bmp::from_slice(include_bytes!("calc_err.bmp")).unwrap();
+    let img = Image::new(
+        &bmp,
+        (117, 0).into(), // Image is 10x10, we put it in the top-right corner
+    );
+    img.draw(disp.deref_mut()).unwrap();
+    disp.flush().unwrap();
 }
 
 pub const fn text_offset(text_len: u32, display_width: u32, font_width: u32) -> u32 {
     (display_width - (text_len * font_width)) / 2
+}
+
+// The stack is intentionally not generic, only for DecimalFixed
+// XXX: Will need a rewrite if the stack type changes, since we can't impl FromStr with static exp
+pub fn parse_textbox<'a, DI, SIZE> (
+    textbox: &mut CustomTextbox<'a, DI, SIZE>,
+    stack: &mut CustomStack<'a, DecimalFixed, DI, SIZE>,
+    flush: bool,
+) -> Result<(), bool>
+where
+    DI: WriteOnlyDataCommand,
+    SIZE: DisplaySize,
+{
+    let txbx_data = textbox.get_text();
+    textbox.clear();
+
+    // `let Ok(x) … else` creates the `x` in the outside scope
+    // The `else` block has to diverge = return the `!` never type
+    // XXX: If you change the stack type, you need to change this too
+    let Ok(num) = DecimalFixed::parse_static_exp(txbx_data.as_str(), -9)
+    else {
+        error!("Failed to parse input as number (ParseIntError)");
+        error!("This should normally be impossible, textbox must be contaminated");
+        return Err(true)
+    };
+
+    // `if let Err(e)` creates the `e` in the inside scope
+    if let Err(e) = stack.push(num) { // So that we have the `e` -- the number we couldn't push
+        error!("Failed to push number onto stack: {:?}", e);
+        return Err(false)
+    // We don't need the contents of Ok() since it's the unit anyway.
+    // If we did, we'd need a `match` pattern, the `if let` pattern wouldn't suffice.
+    } else {
+        // We save ourselves a double flush call when drawing both, because I²C ops are slow and blocking
+        stack.draw(false);
+        textbox.draw(flush);
+    }
+    Ok(())
 }
