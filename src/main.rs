@@ -39,6 +39,8 @@ use textbox::*;
 mod decfix;
 use decfix::DecimalFixed;
 
+const DECFIX_EXPONENT: i8 = -9; // We use 9 decimal places, which is enough for most calculations
+
 #[unsafe(link_section = ".boot2")]
 #[used]
 pub static BOOT2: [u8; 256] = rp2040_boot2::BOOT_LOADER_W25Q080;
@@ -61,8 +63,8 @@ defmt::timestamp!("{=u64:us}", {
 #[hal::entry]
 fn main() -> ! {
     info!("Program start");
-    let mut peri = pac::Peripherals::take().unwrap();
-    let core = pac::CorePeripherals::take().unwrap();
+    let mut peri = pac::Peripherals::take().expect("We just booted, so the peripherals should be available.");
+    let core = pac::CorePeripherals::take().expect("We just booted, so the core peripherals should be available.");
     let mut watchdog = Watchdog::new(peri.WATCHDOG);
     let sio = Sio::new(peri.SIO);
 
@@ -74,7 +76,7 @@ fn main() -> ! {
         peri.PLL_USB,
         &mut peri.RESETS,
         &mut watchdog,
-    ).unwrap();
+    ).expect("Something went wrong when initializing the clocks.");
     let mut delay = cortex_m::delay::Delay::new(core.SYST, clocks.system_clock.freq().to_Hz());
     trace!("Clocks initialized");
 
@@ -98,17 +100,8 @@ fn main() -> ! {
     let iface = ssd1306::I2CDisplayInterface::new(i2c);
     let mut disp = Ssd1306::new(iface, DisplaySize128x64, DisplayRotation::Rotate0)
         .into_buffered_graphics_mode();
-    disp.init().unwrap();
-    disp.set_brightness(Brightness::BRIGHTEST).unwrap();
-
-    // We show a Rust logo bitmap on the display as a loading screen
-    // We're showing it as soon as possible once the display and everything it needs is initialized
-    Image::new(
-        &Bmp::from_slice(include_bytes!("rust.bmp")).unwrap(),
-        (32, 0).into(), // The image is 64x64, so we center it horizontally
-    )
-    .draw(&mut disp).unwrap();
-    disp.flush().unwrap();
+    disp.init().expect("Failed to initialize display. Check wiring.");
+    disp.set_brightness(Brightness::BRIGHTEST).expect("Failed to set display brightness.");
     trace!("Display initialized");
 
     // Let me ask one question: Why the hell can't this be as straightforward as I²C is?
@@ -118,7 +111,7 @@ fn main() -> ! {
         &mut peri.RESETS
     )
     .enable(hal::uart::UartConfig::default(), clocks.peripheral_clock.freq()) // Default is a sane 115200 8N1
-    .unwrap();
+    .expect("Failed to initialize UART peripheral: bad configuration provided.");
     let (rx, tx) = uart.split();
     trace!("UART initialized");
     
@@ -135,9 +128,6 @@ fn main() -> ! {
     let mut textbox: _ = CustomTextboxBuilder::new(&disp_refcell)
         .build();
 
-    trace!("Stack and textbox initialized, showing off the logo for a bit");
-    delay.delay_ms(200); // Just to show the Rust logo for a bit
-
     stack.draw(false);
     textbox.draw(true);
 
@@ -149,7 +139,13 @@ fn main() -> ! {
 
     loop {
         let mut buf: [u8; 1] = [0];
-        rx.read_full_blocking(&mut buf).unwrap(); // TODO: Figure out a way to do this non-blocking, perhaps with DMA and/or an interrupt. I tried and failed miserably.
+        if let Err(e) = rx.read_full_blocking(&mut buf) { // TODO: Figure out a way to do this non-blocking, perhaps with DMA and/or an interrupt. I tried and failed miserably. Maybe I should just have used an async executor like Embassy.
+            error!("Failed to read from UART: {:?}", e);
+            disp_error(&disp_refcell);
+            warn!("Delaying for a second before trying to read again");
+            delay.delay_ms(1000); // Wait a second before trying again, to avoid spamming the error indication
+            continue;
+        }
 
         let char_buf = char::from_u32(buf[0] as u32).unwrap_or('?'); // Replace invalid UTF-8 with a replacement character
 
@@ -191,12 +187,15 @@ fn main() -> ! {
 
             '.' | ',' => { // Decimal point
                 if textbox.is_empty() {
-                    textbox.append_str("0.").unwrap();
+                    if textbox.append_str("0.").is_err() {
+                        error!("It should be impossible to fail to append to an empty textbox.");
+                        disp_grave_error(&disp_refcell, Some(&mut delay));
+                    }
                     textbox.draw(true);
                     continue;
                 }
                 if textbox.contains('.') {
-                    warn!("Ignoring decimal point, textbox already contains one");
+                    info!("Ignoring decimal point, textbox already contains one");
                     continue;
                 }
                 if textbox.append_char('.').is_err() {
@@ -241,21 +240,29 @@ fn main() -> ! {
                         match char_buf {
                             '+' => a + b,
                             '-' => a - b,
-                            '*' => a.priv_mul(b, true).unwrap(), // HACK: Don't unwrap()
-                            '/' => { // FIXME: Division seems to be broken when dividing integers that don't divide evenly.
-                                     /* For example 5 / 2 = 2.5, but we get 2; 
-                                     However, 20.5 / 2 = 10.25, but we get 10.2 , so the exponent seems to be handled correctly, just there's not enough of it.
-                                     When I try 20.50 / 2 I get 10.25, or 20.500 / 2 = 10.250.
-                                     Either automatically increasing the exponent when needed, or doing a reasonable default exponent for parse() would be nice.
-                                     (Currently parse() gives only as much exponent as it needs to represent the number)
-                                     
-                                     Also interesting is that 5.0 / 2 gives correct 2.5, but 5.0 / 2.0 gives 2 */
+                            '*' => {
+                                let Ok(c) = a.multiply(b) else {
+                                    error!("Multiplication errored (overflow?)");
+                                    stack.draw(false);
+                                    disp_error(&disp_refcell);
+                                    continue;
+                                };
+                                c
+                            }
+                            '/' => {
                                 if b.is_zero() {
                                     error!("Division by zero");
+                                    stack.draw(false);
                                     disp_error(&disp_refcell);
                                     continue;
                                 } else {
-                                    a.priv_div(b, true).unwrap() // HACK: Don't unwrap()
+                                    let Ok(c) = a.divide(b) else {
+                                        error!("Division errored (overflow?)");
+                                        stack.draw(false);
+                                        disp_error(&disp_refcell);
+                                        continue;
+                                    };
+                                    c
                                 }
                             },
                             _ => defmt::unreachable!(), // We already checked this above
@@ -384,15 +391,6 @@ fn main() -> ! {
                 };
             },
 
-            'r' => { // Force a redraw of both textbox and stack
-                // Amongst other effects, this clears the non-grave error icon
-                info!("Doing a forced redraw of both stack and textbox.");
-                
-                // Just to be ultra-sure, we flush both
-                stack.draw(true);
-                textbox.draw(true);
-            },
-
             '\x03' => { // Ctrl-C
                 error!("Stopped by user (Ctrl-C)");
                 disp_grave_error(&disp_refcell, None); // We don't reset, just panic.
@@ -426,6 +424,15 @@ fn main() -> ! {
                         // Like Ctrl-C, but with `Some(&mut delay)`
                         error!("Stopped by user (Ctrl-Alt-C). Delaying before reset.");
                         disp_grave_error(&disp_refcell, Some(&mut delay));
+                    },
+                    [b'[', b'1', b'5', b'~', ..] => { // F5 key
+                        // Force a redraw of both textbox and stack
+                        // Amongst other effects, this clears the non-grave error icon
+                        info!("Doing a forced redraw of both stack and textbox.");
+                        
+                        // Just to be ultra-sure, we flush both
+                        stack.draw(true);
+                        textbox.draw(true);
                     },
                     _ => {
                         warn!("Unhandled escape sequence received over UART: {:?}", &buf);
@@ -463,13 +470,18 @@ where
     let mut disp = disp_refcell.borrow_mut();
 
     // Converted at https://convertico.com/png-to-bmp/ to 1-bit BMP
-    let bmp = Bmp::from_slice(include_bytes!("calc_grave_err.bmp")).unwrap();
+    let bmp = Bmp::from_slice(include_bytes!("calc_grave_err.bmp")).expect("Failed to load grave error image from memory. Image data must be malformed.");
     let img = Image::new(
         &bmp,
         (0, 0).into(), // Fullscreen
     );
-    img.draw(disp.deref_mut()).unwrap();
-    disp.flush().unwrap();
+    if let Err(e) = img.draw(disp.deref_mut()) {
+        // We can't use `defmt::panic!()` here because DisplayError does not implement `defmt::Format`
+        core::panic!("Failed to draw image on display: {:?}", e);
+    };
+    if let Err(e) = disp.flush() {
+        core::panic!("Failed to flush display: {:?}", e);
+    };
 
     maybe_delay.expect("No delay provider given, cannot delay before reset. Panicking.")
         .delay_ms(10_000);
@@ -485,13 +497,17 @@ where
 {
     let mut disp = disp_refcell.borrow_mut();
 
-    let bmp = Bmp::from_slice(include_bytes!("calc_err.bmp")).unwrap();
+    let bmp = Bmp::from_slice(include_bytes!("calc_err.bmp")).expect("Failed to load error image from memory. Image data must be malformed.");
     let img = Image::new(
         &bmp,
         (117, 0).into(), // Image is 10x10, we put it in the top-right corner
     );
-    img.draw(disp.deref_mut()).unwrap();
-    disp.flush().unwrap();
+    if let Err(e) = img.draw(disp.deref_mut()) {
+        core::panic!("Failed to draw image on display: {:?}", e);
+    };
+    if let Err(e) = disp.flush() {
+        core::panic!("Failed to flush display: {:?}", e);
+    };
 }
 
 pub const fn text_offset(text_len: u32, display_width: u32, font_width: u32) -> u32 {
@@ -515,10 +531,11 @@ where
     // `let Ok(x) … else` creates the `x` in the outside scope
     // The `else` block has to diverge = return the `!` never type
     // XXX: If you change the stack type, you need to change this too
-    let Ok(num) = DecimalFixed::parse_static_exp(txbx_data.as_str(), -9)
+    let Ok(num) = DecimalFixed::parse_static_exp(txbx_data.as_str(), DECFIX_EXPONENT)
     else {
         error!("Failed to parse input as number (ParseIntError)");
-        error!("This should normally be impossible, textbox must be contaminated");
+        error!("Textbox either contains invalid characters or the number is out of range.");
+        debug!("Textbox contents: {:?}", txbx_data.as_str());
         return Err(true)
     };
 

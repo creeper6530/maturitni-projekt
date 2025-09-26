@@ -150,7 +150,7 @@ impl DecimalFixed {
         }
     }
     
-    pub fn priv_mul(&self, other: DecimalFixed, keep_exponent: bool) -> Result<DecimalFixed, ()> {
+    fn priv_mul(&self, other: DecimalFixed, keep_exponent: bool) -> Result<DecimalFixed, ()> {
         // Multiplying two fixed-point numbers:
         // (value1 * 10^exp1) * (value2 * 10^exp2) = (value1 * value2) * 10^(exp1 + exp2)
         if keep_exponent {
@@ -171,7 +171,7 @@ impl DecimalFixed {
         }
     }
 
-    pub fn priv_div(&self, other: DecimalFixed, keep_exponent: bool) -> Result<DecimalFixed, ()> {
+    fn priv_div(&self, other: DecimalFixed, keep_exponent: bool) -> Result<DecimalFixed, ()> {
         // Dividing two fixed-point numbers:
         // (value1 * 10^exp1) / (value2 * 10^exp2) = (value1 / value2) * 10^(exp1 - exp2)
         if keep_exponent {
@@ -194,8 +194,19 @@ impl DecimalFixed {
         }
     }
 
-    pub fn negate(&self) -> DecimalFixed {
-        DecimalFixed { value: -self.value, exponent: self.exponent }
+    /// Unlike the `*` operator, this keeps the exponent the same
+    pub fn multiply(&self, other: DecimalFixed) -> Result<DecimalFixed, ()> {
+        self.priv_mul(other, true)
+    }
+
+    /// Unlike the `/` operator, this keeps the exponent the same
+    pub fn divide(&self, other: DecimalFixed) -> Result<DecimalFixed, ()> {
+        self.priv_div(other, true)
+    }
+
+    pub fn negate(&self) -> Result<DecimalFixed, ()> {
+        if self.value == i64::MIN { return Err(()) } // Negating i64::MIN would overflow
+        Ok ( DecimalFixed { value: -self.value, exponent: self.exponent } )
     }
 
     pub fn negate_in_place(&mut self) -> () {
