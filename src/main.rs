@@ -38,6 +38,8 @@ mod textbox;
 use textbox::*;
 mod decfix;
 use decfix::DecimalFixed;
+mod custom_error;
+use custom_error::CustomError;
 
 const DECFIX_EXPONENT: i8 = -9; // We use 9 decimal places, which is enough for most calculations
 
