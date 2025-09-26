@@ -1,20 +1,20 @@
 - Get better error handling, no unwrap()-s, or at the very least expect()-s. Panics are for irrecoverable catastrophes.
-  - Get a better way to show error than polluting the textbox. Leading idea: show a black `E` in a white square in the top right corner, or for grave errors clear screen white and show a big `ERROR` text before resetting with `cortex_m::peripheral::SCB::sys_reset()` (after a delay, of course).
   - Especially handle overflows when doing number shit. Currently we have overflow checks in both `debug` and `release` targets, but that's again a panic...
     - The `a.checked_add(b)` function(s) may help
 - Switch to `rtt-target` in order to be able to finer control RTT, instead of `defmt-rtt`.
-  - Perhaps we could use its probe-to-target comms in place of UART to rid ourselves of one wire? But then we'd require a probe attached, not a generic UART. We probably won't always need a probe...
+  - Perhaps we could use its probe-to-target comms (= numbers and operations input) in place of UART to rid ourselves of one wire? But then we'd require a probe attached, not a generic UART. We probably won't always need a probe...
+    - Question is, whether it'd be such a great idea, since we'd likely lost the ANSI escape sequences and Ctrl keycombos.
   - Docs on how to do it [here](https://docs.rs/rtt-target/latest/rtt_target/#defmt-integration).
 - Set the display brightness with a potentiometer
-  - Would be polled, datasheet shows no trace of interrupts on value change (duh)
+  - Would be polled, datasheet shows no trace of interrupts on value change (duh, there's noise on the ADC input after all)
+  - And if we felt super fancy, we could even use a phototransistor as well to implement a turnoffable adaptive brightness
 - Figure out a way to do UART receiving asynchronously – without polling, but interrupts, DMA or similar funsies. Just so that we don't block and can go to WFI/WFE sleep.
   - I already tried something and failed miserable. That's why we poll ATM.
+  - Maybe I should've gone with async Embassy instead...
 - Make a common file for all constants instead of them being spread around `stack.rs`, `textbox.rs` and `main.rs`, or at least add runtime checks that matching consts equal.
-- Allow a const to configure the default precision of `DecimalFixed`
 - Add some functionality to the ANSI escape codes
-  - Arrow keys could move the cursor in the textbox
+  - Arrow keys could move the cursor in the textbox – left-right keys; and scroll through either the last inputs (would need history keeping) or through values in stack (would need peeking at arbitrary depth) like in a terminal – up-down keys.
   - Delete key could either operate on the textbox, alias Backspace or drop the topmost item from the stack (alias Shift-D)
   - Maybe use PgUp and PgDn keys to scroll through the stack's preview?
   - F-keys are ANSI escaped and could be used for more advanced functions instead of letter keys
   - See [ANSI escape code#Terminal input sequence](https://en.wikipedia.org/wiki/ANSI_escape_code?useskin=vector#Terminal_input_sequences) for more details
-- Move the pushing of textbox to stack to a separate function instead of duplicating it in CR/LF case and operands case

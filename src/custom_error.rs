@@ -7,6 +7,7 @@ pub enum CustomError {
     MathOverflow,
     ParseIntError(IntErrorKind),
     FormatError,
+    BadInput,
 
     Unimplemented,
     Other
