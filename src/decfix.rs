@@ -77,7 +77,7 @@ impl FromStr for DecimalFixed {
 
 impl Default for DecimalFixed {
     fn default() -> Self {
-        Self { value: 0, exponent: -9 }
+        Self { value: 0, exponent: DEFAULT_EXPONENT }
     }
 }
 
@@ -229,35 +229,6 @@ impl DecimalFixed {
     /// Returns a bool as to whether the number is zero
     pub fn is_zero(&self) -> bool {
         self.value == 0
-    }
-}
-
-// Apparently it is idiomatic to implement `From` instead of `Into`, because `Into` is automatically implemented
-impl From<DecimalFixed> for i64 {
-    fn from(input: DecimalFixed) -> Self {
-        if input.exponent == 0 {
-            input.value
-        } else if input.exponent > 0 {
-            input.value * 10_i64.pow(input.exponent as u32)
-        } else {
-            // This will truncate the decimal part, which is expected when converting to integer
-            input.value / 10_i64.pow((-input.exponent) as u32)
-        }
-    }
-}
-
-impl From<DecimalFixed> for f64 {
-    /// Almost certainly a lossy conversion
-    fn from(input: DecimalFixed) -> Self {
-        if input.exponent == 0 {
-            input.value as f64
-        } else if input.exponent > 0 {
-            input.value as f64 * (10_i64.pow(input.exponent as u32)) as f64   
-        } else {
-            // This should hopefully not lose the decimal part
-            // TODO: Test this
-            input.value as f64 / (10_i64.pow((-input.exponent) as u32)) as f64
-        }
     }
 }
 
