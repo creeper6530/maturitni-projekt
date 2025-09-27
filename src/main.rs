@@ -143,6 +143,10 @@ fn main() -> ! {
         let mut buf: [u8; 1] = [0];
         if let Err(e) = rx.read_full_blocking(&mut buf) { // TODO: Figure out a way to do this non-blocking, perhaps with DMA and/or an interrupt. I tried and failed miserably. Maybe I should just have used an async executor like Embassy.
             error!("Failed to read from UART: {:?}", e);
+            if let hal::uart::ReadErrorType::Break = e {
+                debug!("Check wiring, usually a break indicates a disconnected wire at the RX pin.");
+            };
+
             disp_error(&disp_refcell);
             warn!("Delaying for a second before trying to read again");
             delay.delay_ms(1000); // Wait a second before trying again, to avoid spamming the error indication
