@@ -18,3 +18,4 @@
   - Maybe use PgUp and PgDn keys to scroll through the stack's preview?
   - F-keys are ANSI escaped and could be used for more advanced functions instead of letter keys
   - See [ANSI escape code#Terminal input sequence](https://en.wikipedia.org/wiki/ANSI_escape_code?useskin=vector#Terminal_input_sequences) for more details
+- Consider adding attributes to the `memory.x` linker script, as described [here](https://home.cs.colorado.edu/~main/cs1300/doc/gnu/ld_3.html#SEC37).

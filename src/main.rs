@@ -453,6 +453,11 @@ fn main() -> ! {
                 debug!("Breakpoint!");
             },
 
+            '\x15' => { // Ctrl-U
+                info!("Rebooting intto USB bootloader by user request (Ctrl-U)");
+                hal::rom_data::reset_to_usb_boot(0, 0); // No pin for activity LED, both MSC and Picoboot enabled – as per cold boot.
+            },
+
             _ => {
                 warn!("Unhandled character received over UART: {:?} (0x{:X})", char_buf, buf[0]);
                 continue; // Ignore the character
