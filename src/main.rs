@@ -27,13 +27,25 @@ use embedded_graphics::{prelude::*, image::Image};
 use ssd1306::{prelude::*, Ssd1306};
 use tinybmp::Bmp;
 
-use core::cell::RefCell;
-//use core::ops::DerefMut;
+use embedded_graphics::{
+    pixelcolor::BinaryColor,
 
-mod stack;
-use stack::*;
-mod textbox;
-use textbox::*;
+    mono_font::{
+//        ascii::FONT_6X12,
+        iso_8859_2::FONT_6X12 as ISO_FONT_6X12,
+        MonoTextStyleBuilder
+    },
+    text::{
+        Baseline,
+        Text,
+    },
+
+    primitives::{
+        PrimitiveStyleBuilder,
+        Rectangle,
+        Triangle,
+    },
+};
 
 #[unsafe(link_section = ".boot2")]
 #[used]
@@ -72,7 +84,7 @@ fn main() -> ! {
         &mut watchdog,
     ).unwrap();
     let mut delay = cortex_m::delay::Delay::new(core.SYST, clocks.system_clock.freq().to_Hz());
-    trace!("Clocks initialized");
+    debug!("Clocks initialized");
 
     let pins = hal::gpio::Pins::new(
         pac.IO_BANK0,
@@ -89,56 +101,79 @@ fn main() -> ! {
         &mut pac.RESETS,
         &clocks.peripheral_clock,
     );
-    trace!("I²C initialized");
+    debug!("I2C basics initialized");
 
+    // This helper struct finishes configuring the I2C (most importantly with the display's address) and provides a compatible interface for SSD1306 lib.
     let iface = ssd1306::I2CDisplayInterface::new(i2c);
+
     let mut disp = Ssd1306::new(iface, DisplaySize128x64, DisplayRotation::Rotate0)
-        .into_buffered_graphics_mode();
-    disp.init().unwrap();
-    disp.set_brightness(Brightness::BRIGHTEST).unwrap(); // TODO: Set the brightness with a potentiometer (probably poll, not ADC interrupt due to noise)
+        .into_buffered_graphics_mode(); // Needed to support embedded-graphics.
+    disp.init().unwrap(); // Automatically clears it as well; without that it would show grain as (V)RAM is random on powerup.
+    disp.set_brightness(Brightness::BRIGHTEST).unwrap(); // XXX: Good to dim when working at night!
+    info!("Display initialized");
 
-    // We show a Rust logo bitmap on the display as a loading screen
-    // We're showing it as soon as possible once the display and everything it needs is initialized
+    // We show a Rust logo bitmap on the display just to show off images.
+    // Look at commit 59f55b280c9fee0391c036f87171be7993ee8497 to see more about images.
+    // You can make compatible 1-bit BMPs at https://convertico.com/png-to-bmp/
     Image::new(
-        &Bmp::from_slice(include_bytes!("rust.bmp")).unwrap(),
-        (32, 0).into(), // The image is 64x64, so we center it horizontally
-    )
-    .draw(&mut disp).unwrap();
-    disp.flush().unwrap();
-    trace!("Display initialized");
+        &Bmp::from_slice(include_bytes!("rust.bmp")).unwrap(), // The include_bytes! macro yields a `&'static [u8; N]` slice equal to the file bytes.
+        (32, 0).into(), // The image is 64x64, so we center it horizontally, since the position is top-left corner.
+    ).draw(&mut disp).unwrap();
 
-    // Let me ask one question: Why the hell can't this be as straightforward as I²C is?
-    let uart = hal::uart::UartPeripheral::new(
-        pac.UART0,
-        (pins.gpio0.into_function(), pins.gpio1.into_function()), // Luckily the function itself is inferred, so we don't need to specify it explicitly
-        &mut pac.RESETS
-    )
-    .enable(hal::uart::UartConfig::default(), clocks.peripheral_clock.freq()) // Default is a sane 115200 8N1
+    // Since every debug goes with a timestamp, this measures the time taken to flush it
+    trace!("Flushing");
+    disp.flush().unwrap(); // The draw method only draws to a buffer (for performance), we need to flush it over I2C.
+    trace!("Flushed");
+
+    info!("Showed an image, delaying...");
+    delay.delay_ms(3_000);
+
+    debug!("Drawing all the funsies");
+
+    // Standard white text on transparent background using supplied font that supports Czech
+    let text_style = MonoTextStyleBuilder::new()
+        .font(&ISO_FONT_6X12)
+        .text_color(BinaryColor::On)
+        .build();
+
+    // Standard white stroke with 2px width and transparent fill
+    let primitives_style = PrimitiveStyleBuilder::new()
+        .stroke_width(2)
+        .stroke_color(BinaryColor::On)
+        .build();
+
+    // Draw a rectangle over the entire screen
+    Rectangle::new(
+        (0, 0).into(), // Top-left corner
+        (128, 64).into() // Size (here equals size of display)
+    ).into_styled(primitives_style) // Style it with the appropriate style
+    .draw(&mut disp)
     .unwrap();
-    trace!("UART initialized");
 
-    let disp_refcell = RefCell::new(disp);
-    // Range of isize is `-2147483648..=2147483647`
-    let mut stack: CustomStack<'_, isize, _, _> = CustomStackBuilder::<'_, isize, _, _>::new(&disp_refcell) // We're using the turbofish syntax here
-        .build();
-    let mut textbox: _ = CustomTextboxBuilder::new(&disp_refcell)
-        .build();
+    // Randomly chosen points for the triangle
+    Triangle::new(
+        (10, 10).into(),
+        (80, 20).into(),
+        (50, 55).into()
+    ).into_styled(primitives_style)
+    .draw(&mut disp)
+    .unwrap();
 
-    stack.push(5).unwrap();
-    stack.push(6).unwrap();
-    stack.push(7).unwrap();
-    stack.push(8).unwrap();
-    stack.push(9).unwrap();
-    stack.push(10).unwrap();
-    textbox.append_str("DEBUG TEXTBOX DEBUG!").unwrap();
+    Text::with_baseline(
+        "Příliš žluťoučký",
+        (25, (64 - 12)).into(),
+        text_style, // Text apparently doesn't do into_styled ¯\_(ツ)_/¯
+        Baseline::Top
+    )
+    .draw(&mut disp)
+    .unwrap();
 
-    delay.delay_ms(2_000);
-    stack.draw(false);
-    textbox.draw(true);
+    trace!("Flushing");
+    disp.flush().unwrap();
+    trace!("Flushed");
+    info!("Display drawn to and flushed. Goodnight.");
 
     loop {
-        asm::wfi();
+        asm::wfi(); // Just repeatedly go into sleep mode
     }
 }
-
-// End of file
