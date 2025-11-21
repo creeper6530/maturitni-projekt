@@ -58,7 +58,7 @@ defmt::timestamp!("{=u64:us}", {
     It could have unforseen consequences if we try reading again while there's already a read in progress. */
 
     // Safety: We are guaranteed that the PTR points to a valid place, since we assume the `pac` is infallible.
-    let timer_regs = unsafe { &*pac::TIMER::PTR }; // We dereference the TIMER peripheral's raw pointer and get a normal reference to it.
+    let timer_regs = unsafe { &*pac::TIMER::PTR }; // We dereference the TIMER peripheral's raw pointer and get a normal reference to it. And no, we can't do this in a const nor a static.
     critical_section::with(|_| {
         let low: u32 = timer_regs.timelr().read().bits();
         let hi: u32 = timer_regs.timehr().read().bits();
