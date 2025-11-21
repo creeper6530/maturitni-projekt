@@ -13,21 +13,18 @@ use panic_probe as _;
 use rp2040_hal as hal;
 use hal::{
     pac,
+    sio::Sio,
 
     clocks::{Clock, init_clocks_and_plls},
     watchdog::Watchdog,
-    
-    sio::Sio,
 };
 use rp2040_hal::fugit::RateExtU32; // For the `.kHz()` method on u32 integers
 use cortex_m::asm;
 
 // Display imports
-use embedded_graphics::{prelude::*, image::Image};
 use ssd1306::{prelude::*, Ssd1306};
-use tinybmp::Bmp;
-
 use embedded_graphics::{
+    prelude::*,
     pixelcolor::BinaryColor,
 
     mono_font::{
@@ -45,7 +42,10 @@ use embedded_graphics::{
         Rectangle,
         Triangle,
     },
+
+    image::Image,
 };
+use tinybmp::Bmp;
 
 #[unsafe(link_section = ".boot2")]
 #[used]
@@ -130,6 +130,8 @@ fn main() -> ! {
 
     debug!("Drawing all the funsies");
 
+    disp.clear_buffer(); // We don't want to draw over the image
+
     // Standard white text on transparent background using supplied font that supports Czech
     let text_style = MonoTextStyleBuilder::new()
         .font(&ISO_FONT_6X12)
@@ -150,11 +152,19 @@ fn main() -> ! {
     .draw(&mut disp)
     .unwrap();
 
+    // Another, smaller square
+    Rectangle::new(
+        (5, 5).into(), // Top-left corner
+        (35, 35).into() // Size (here equals size of display)
+    ).into_styled(primitives_style) // Style it with the appropriate style
+    .draw(&mut disp)
+    .unwrap();
+
     // Randomly chosen points for the triangle
     Triangle::new(
-        (10, 10).into(),
-        (80, 20).into(),
-        (50, 55).into()
+        (20, 20).into(),
+        (105, 15).into(),
+        (70, 50).into()
     ).into_styled(primitives_style)
     .draw(&mut disp)
     .unwrap();
