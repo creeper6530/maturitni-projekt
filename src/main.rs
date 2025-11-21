@@ -30,7 +30,7 @@ use embedded_graphics::{
     mono_font::{
 //        ascii::FONT_6X12,
         iso_8859_2::FONT_6X12 as ISO_FONT_6X12,
-        MonoTextStyleBuilder,
+        MonoTextStyle
     },
     text::{
         Baseline,
@@ -138,10 +138,7 @@ fn main() -> ! {
     disp.clear_buffer(); // We don't want to draw over the image
 
     // Standard white text on transparent background using supplied font that supports Czech
-    let character_style = MonoTextStyleBuilder::new()
-        .font(&ISO_FONT_6X12)
-        .text_color(BinaryColor::On)
-        .build();
+    let character_style = MonoTextStyle::new(&ISO_FONT_6X12, BinaryColor::On);
 
     /* Yes, I could just use the default or do with_baseline, but I want to demonstrate both alignment and baseline options.
 
