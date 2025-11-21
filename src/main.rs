@@ -39,6 +39,9 @@ use embedded_graphics::{
 
     primitives::{
         PrimitiveStyleBuilder,
+        PrimitiveStyle,
+        StrokeAlignment,
+
         Rectangle,
         Triangle,
     },
@@ -139,10 +142,12 @@ fn main() -> ! {
         .build();
 
     // Standard white stroke with 2px width and transparent fill
-    let primitives_style = PrimitiveStyleBuilder::new()
-        .stroke_width(2)
-        .stroke_color(BinaryColor::On)
-        .build();
+    let primitives_style = PrimitiveStyle {
+        fill_color: None,
+        stroke_color: Some(BinaryColor::On),
+        stroke_width: 2,
+        stroke_alignment: StrokeAlignment::Inside,
+    };
 
     // Draw a rectangle over the entire screen
     Rectangle::new(
