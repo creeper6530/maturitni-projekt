@@ -30,16 +30,18 @@ use embedded_graphics::{
     mono_font::{
 //        ascii::FONT_6X12,
         iso_8859_2::FONT_6X12 as ISO_FONT_6X12,
-        MonoTextStyleBuilder
+        MonoTextStyleBuilder,
     },
     text::{
         Baseline,
+        Alignment,
+        TextStyleBuilder,
+
         Text,
     },
 
     primitives::{
         PrimitiveStyleBuilder,
-        PrimitiveStyle,
         StrokeAlignment,
 
         Rectangle,
@@ -136,18 +138,31 @@ fn main() -> ! {
     disp.clear_buffer(); // We don't want to draw over the image
 
     // Standard white text on transparent background using supplied font that supports Czech
-    let text_style = MonoTextStyleBuilder::new()
+    let character_style = MonoTextStyleBuilder::new()
         .font(&ISO_FONT_6X12)
         .text_color(BinaryColor::On)
         .build();
 
+    /* Yes, I could just use the default or do with_baseline, but I want to demonstrate both alignment and baseline options.
+
+    The baseline: I'm used to specifying top-left corner instead of some shitty "baseline" where glyphs hang below, like 'p' or 'y'.
+    Do I look to you like a fucking typographer? I'm sleep deprived and just want a predictable position without overlaps!
+    (Well, technically here I'm specifying the top-middle because of center alignment, but still, it's top.)
+
+    The alingment: We're aligning to center just to show off. Too impractical in the actual project.
+    But hey, when I want to center something next time, now I know that I can just specify WIDTH/2
+    and let the library handle it, not having to write custom macro to determine the coords. */
+    let text_style = TextStyleBuilder::new()
+        .baseline(Baseline::Top)
+        .alignment(Alignment::Center)
+        .build();
+
     // Standard white stroke with 2px width and transparent fill
-    let primitives_style = PrimitiveStyle {
-        fill_color: None,
-        stroke_color: Some(BinaryColor::On),
-        stroke_width: 2,
-        stroke_alignment: StrokeAlignment::Inside,
-    };
+    let primitives_style = PrimitiveStyleBuilder::new()
+        .stroke_color(BinaryColor::On)
+        .stroke_width(2)
+        .stroke_alignment(StrokeAlignment::Inside)
+        .build();
 
     // Draw a rectangle over the entire screen
     Rectangle::new(
@@ -169,18 +184,17 @@ fn main() -> ! {
     Triangle::new(
         (20, 20).into(),
         (105, 15).into(),
-        (70, 50).into()
+        (70, 45).into()
     ).into_styled(primitives_style)
     .draw(&mut disp)
     .unwrap();
 
-    Text::with_baseline(
+    Text::with_text_style(
         "Příliš žluťoučký",
-        (25, (64 - 12)).into(),
-        text_style, // Text apparently doesn't do into_styled ¯\_(ツ)_/¯
-        Baseline::Top
-    )
-    .draw(&mut disp)
+        ((128 / 2), (64 - 15)).into(), // Position: with the used baseline and alignment, this is top-center
+        character_style, // Text doesn't do into_styled because there are two "styles"
+        text_style,
+    ).draw(&mut disp)
     .unwrap();
 
     trace!("Flushing");
