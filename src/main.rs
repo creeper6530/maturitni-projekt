@@ -115,7 +115,7 @@ fn main() -> ! {
         .into_buffered_graphics_mode(); // Needed to support embedded-graphics.
     disp.init().unwrap(); // Automatically clears it as well; without that it would show grain as (V)RAM is random on powerup.
     disp.set_brightness(Brightness::BRIGHTEST).unwrap(); // XXX: Good to dim when working at night!
-    info!("Display initialized");
+    debug!("Display initialized");
 
     // We show a Rust logo bitmap on the display just to show off images.
     // Look at commit 59f55b280c9fee0391c036f87171be7993ee8497 to see more about images.
