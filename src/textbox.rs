@@ -294,32 +294,32 @@ where
         Ok(())
     }
 
-    pub fn append_str(&mut self, string: &str) -> Result<(), ()> {
-        if self.text.len() + string.len() > TEXT_BUFFER_SIZE {
+    pub fn append_str(&mut self, string: &str) -> Result<(), CustomError> {
+        // We do not check for buffer overflow, as `push_str` will do that for us
+        // `heapless` v0.9 changed the error type of `push` and `push_str` from `()` to `CapacityError`
+        if let Err(e) = self.text.push_str(string) {
             warn!("Tried to append a string that is too long for the textbox, returning Err.");
-            return Err(());
-        }
-
-        return self.text.push_str(string).map_err(|_| ()); // `heapless` v0.9 changed the error type of `push` and `push_str` from `()` to `CapacityError`, we map it back to `()`
+            return Err(CustomError::from(e));
+        };
+        Ok(())
     }
 
-    pub fn append_char(&mut self, c: char) -> Result<(), ()> {
-        if self.text.len() + c.len_utf8() > TEXT_BUFFER_SIZE { // We care about the UTF-8 byte length, not the number of characters
+    pub fn append_char(&mut self, c: char) -> Result<(), CustomError> {
+        if let Err(e) = self.text.push(c) {
             warn!("Tried to append a character that is too long for the textbox, returning Err.");
-            return Err(());
-        }
-
-        return self.text.push(c).map_err(|_| ());
+            return Err(CustomError::from(e));
+        };
+        Ok(())
     }
 
     pub fn get_text(&self) -> String<TEXT_BUFFER_SIZE> {
         return self.text.clone();
     }
 
-    pub fn backspace(&mut self, count: usize) -> Result<(), ()> {
+    pub fn backspace(&mut self, count: usize) -> Result<(), CustomError> {
         if self.text.len() < count {
             warn!("Tried to backspace more than is present, returning an Err.");
-            return Err(());
+            return Err(CustomError::BadInput);
         }
 
         for _ in 0..count {

@@ -1,6 +1,7 @@
 use core::fmt;
 use core::num::{ParseIntError, IntErrorKind};
 use display_interface::DisplayError;
+use heapless::CapacityError;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive] // So that we can add more error types later without breaking compatibility
@@ -12,6 +13,7 @@ pub enum CustomError {
 
     //DisplayError(DisplayError),
     DisplayError,
+    CapacityError,
 
     Unimplemented,
     Other
@@ -52,6 +54,12 @@ impl From<DisplayError> for CustomError {
 impl From<DisplayError> for CustomError {
     fn from(_: DisplayError) -> Self {
         CustomError::DisplayError
+    }
+}
+
+impl From<CapacityError> for CustomError {
+    fn from(_: CapacityError) -> Self {
+        CustomError::CapacityError
     }
 }
 
