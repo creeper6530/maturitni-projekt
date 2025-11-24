@@ -1,5 +1,6 @@
 use core::fmt;
 use core::num::{ParseIntError, IntErrorKind};
+use display_interface::DisplayError;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive] // So that we can add more error types later without breaking compatibility
@@ -8,6 +9,9 @@ pub enum CustomError {
     ParseIntError(IntErrorKind),
     FormatError,
     BadInput,
+
+    //DisplayError(DisplayError),
+    DisplayError,
 
     Unimplemented,
     Other
@@ -34,6 +38,20 @@ impl From<ParseIntError> for CustomError {
 impl From<fmt::Error> for CustomError {
     fn from(_: fmt::Error) -> Self {
         CustomError::FormatError
+    }
+}
+
+/*
+impl From<DisplayError> for CustomError {
+    fn from(err: DisplayError) -> Self {
+        CustomError::DisplayError(err)
+    }
+}
+*/
+
+impl From<DisplayError> for CustomError {
+    fn from(_: DisplayError) -> Self {
+        CustomError::DisplayError
     }
 }
 

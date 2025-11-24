@@ -42,6 +42,8 @@ use defmt::*;
 use defmt_rtt as _;
 use panic_probe as _;
 
+use crate::custom_error::CustomError; // Because we already have the `mod` in `main.rs`
+
 // ------------------------------------------------------------------------------------------------------------------------------------------------
 
 // Note: these constants are copied in `stack.rs` as well, maintain consistency between the two files!
@@ -176,7 +178,7 @@ where
         warn!("Building a debug textbox, filling it with default values.");
 
         self.text.clear();
-        self.text.push_str("DEBUG TEXTBOX").unwrap();
+        self.text.push_str("DEBUG TEXTBOX").expect("TEXT_BUFFER_SIZE is too small for the debug message!");
 
         return CustomTextbox {
             // Fill the text with a debug message
@@ -240,7 +242,7 @@ where
     DI: WriteOnlyDataCommand,
     SIZE: DisplaySize,
 {
-    pub fn draw(&self, flush: bool) {
+    pub fn draw(&self, flush: bool) -> Result<(), CustomError> {
 
         let mut display_refmut = self.display_refcell.borrow_mut();
         let display_ref = display_refmut.deref_mut();
@@ -262,8 +264,7 @@ where
                 self.primitives_alternate_style // Otherwise, we use the alternate style to draw a black rectangle - clearing the area
             }
         )
-        .draw(display_ref)
-        .unwrap();
+        .draw(display_ref)?;
 
         Text::with_baseline(
             self.text.as_str(),
@@ -271,8 +272,7 @@ where
             self.text_style,
             Baseline::Top
         )
-        .draw(display_ref)
-        .unwrap();
+        .draw(display_ref)?;
 
         if TEXTBOX_CURSOR {
             let cursor_height = TEXTBOX_OFFSET - 1;
@@ -286,11 +286,12 @@ where
                 (self.text_style.font.character_size.width, cursor_height as u32).into()
             )
             .into_styled(self.primitives_style)
-            .draw(display_ref)
-            .unwrap();
+            .draw(display_ref)?;
         }
 
-        if flush { display_ref.flush().unwrap(); };
+        if flush { display_ref.flush()?; };
+
+        Ok(())
     }
 
     pub fn append_str(&mut self, string: &str) -> Result<(), ()> {
