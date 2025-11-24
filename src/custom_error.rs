@@ -3,20 +3,42 @@ use core::num::{ParseIntError, IntErrorKind};
 use display_interface::DisplayError;
 use heapless::CapacityError;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, defmt::Format)]
 #[non_exhaustive] // So that we can add more error types later without breaking compatibility
 pub enum CustomError {
     MathOverflow,
-    ParseIntError(IntErrorKind),
+    ParseIntError(IntErrorKindClone),
     FormatError,
     BadInput,
 
-    //DisplayError(DisplayError),
-    DisplayError,
+    DisplayError(DisplayErrorClone),
     CapacityError,
 
     Unimplemented,
     Other
+}
+
+// Because IntErrorKind doesn't implement defmt::Format.
+#[derive(Debug, Clone, PartialEq, Eq, Copy, Hash, defmt::Format)]
+pub enum IntErrorKindClone {
+    Empty,
+    InvalidDigit,
+    PosOverflow,
+    NegOverflow,
+    Zero,
+}
+
+// Because DisplayError doesn't implement PartialEq nor Eq, or at least until my PR gets merged. (It should implement defmt::Format though.)
+// Said PR: https://github.com/therealprof/display-interface/pull/55
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, defmt::Format)]
+pub enum DisplayErrorClone {
+    InvalidFormatError,
+    BusWriteError,
+    DCError,
+    CSError,
+    DataFormatNotImplemented,
+    RSError,
+    OutOfBoundsError,
 }
 
 impl fmt::Display for CustomError {
@@ -30,10 +52,16 @@ impl core::error::Error for CustomError {}
 
 impl From<ParseIntError> for CustomError {
     fn from(err: ParseIntError) -> Self {
-        /* For SOME FUCKING REASON, the idiotic IntErrorKind enum doesn't implement Copy, because of course it doesn't. That's too much to ask for.
-        Even though it only contains unit variants, so it has no actual data in it.
-        So we have to clone it. Unbe-fucking-lievable. */
-        CustomError::ParseIntError(err.kind().clone())
+        let kind = *err.kind();
+        
+        CustomError::ParseIntError(match kind {
+            IntErrorKind::Empty => IntErrorKindClone::Empty,
+            IntErrorKind::InvalidDigit => IntErrorKindClone::InvalidDigit,
+            IntErrorKind::PosOverflow => IntErrorKindClone::PosOverflow,
+            IntErrorKind::NegOverflow => IntErrorKindClone::NegOverflow,
+            IntErrorKind::Zero => IntErrorKindClone::Zero,
+            _ => defmt::unimplemented!("IntErrorKind is non-exhaustive")
+        })
     }
 }
 
@@ -43,17 +71,18 @@ impl From<fmt::Error> for CustomError {
     }
 }
 
-/*
 impl From<DisplayError> for CustomError {
     fn from(err: DisplayError) -> Self {
-        CustomError::DisplayError(err)
-    }
-}
-*/
-
-impl From<DisplayError> for CustomError {
-    fn from(_: DisplayError) -> Self {
-        CustomError::DisplayError
+        CustomError::DisplayError(match err {
+            DisplayError::InvalidFormatError => DisplayErrorClone::InvalidFormatError,
+            DisplayError::BusWriteError => DisplayErrorClone::BusWriteError,
+            DisplayError::DCError => DisplayErrorClone::DCError,
+            DisplayError::CSError => DisplayErrorClone::CSError,
+            DisplayError::DataFormatNotImplemented => DisplayErrorClone::DataFormatNotImplemented,
+            DisplayError::RSError => DisplayErrorClone::RSError,
+            DisplayError::OutOfBoundsError => DisplayErrorClone::OutOfBoundsError,
+            _ => defmt::unimplemented!("DisplayError is non-exhaustive")
+        })
     }
 }
 

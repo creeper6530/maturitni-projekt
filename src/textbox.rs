@@ -297,17 +297,17 @@ where
     pub fn append_str(&mut self, string: &str) -> Result<(), CustomError> {
         // We do not check for buffer overflow, as `push_str` will do that for us
         // `heapless` v0.9 changed the error type of `push` and `push_str` from `()` to `CapacityError`
-        if let Err(e) = self.text.push_str(string) {
+        if self.text.push_str(string).is_err() {
             warn!("Tried to append a string that is too long for the textbox, returning Err.");
-            return Err(CustomError::from(e));
+            return Err(CustomError::CapacityError);
         };
         Ok(())
     }
 
     pub fn append_char(&mut self, c: char) -> Result<(), CustomError> {
-        if let Err(e) = self.text.push(c) {
+        if self.text.push(c).is_err() {
             warn!("Tried to append a character that is too long for the textbox, returning Err.");
-            return Err(CustomError::from(e));
+            return Err(CustomError::CapacityError);
         };
         Ok(())
     }

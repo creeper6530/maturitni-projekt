@@ -42,6 +42,8 @@ use defmt::*;
 use defmt_rtt as _;
 use panic_probe as _;
 
+use crate::custom_error::CustomError; // Because we already have the `mod` in `main.rs`
+
 // ------------------------------------------------------------------------------------------------------------------------------------------------
 
 // Note: these constants are copied in `textbox.rs` as well, maintain consistency between the two files!
@@ -200,7 +202,7 @@ where
 
         // Fill the stack with default values
         for i in [T::default(); MAX_STACK_SIZE] {
-            self.data.push(i).unwrap();
+            self.data.push(i).expect("We're pushing exactly MAX_STACK_SIZE elements, so this should never fail!");
         }
 
         return CustomStack {
@@ -253,7 +255,7 @@ where
     /// ## TODO: Get error handling better than panickings
     /// 
     /// Draws the stack on the display.
-    pub fn draw(&self, flush: bool) {
+    pub fn draw(&self, flush: bool) -> Result<(), CustomError> {
 
         // We're going to operate on the display for the entire method, so no need to wrap it in a scope
         // It will get automatically dropped at the end of the method
@@ -262,15 +264,6 @@ where
 
         // A convenience variable
         let text_height = (self.text_style.font.character_size.height - PIXELS_REMOVED as u32) as u8;
-
-        // If there is less data than the display can show, we just draw all of it.
-        // In that case, we will "hang" the stack visually from the top of the display (desirable).
-        let num_lines = min(
-            self.data.len() as u8,
-            (self.disp_dimensions.height / text_height // Integer division: always rounded down (desirable here)
-            ) - 1 // -1 because we want to leave space for the bottom line
-        );
-        trace!("Drawing {} lines on the display.", num_lines);
         
         // Clear the area where the stack will be drawn
         Rectangle::new(
@@ -284,17 +277,24 @@ where
                 self.primitives_alternate_style // Otherwise, we use the alternate style to draw a black rectangle - clearing the area
             }
         )
-        .draw(display_ref)
-        .unwrap();
+        .draw(display_ref)?;
 
         if self.data.is_empty() {
             // If the stack is empty, we don't need to draw anything so we expediently return
-            if flush { display_ref.flush().unwrap(); };
-            return;
+            if flush { display_ref.flush()?; };
+            return Ok(());
         }
 
-        let text_vec = self.multipeek(num_lines)
-            .unwrap_or(Vec::new()); // If the stack is empty, we get an empty Vec
+        // If there is less data than the display can show, we just draw all of it.
+        // In that case, we will "hang" the stack visually from the top of the display (desirable).
+        let num_lines = min(
+            self.data.len() as u8,
+            (self.disp_dimensions.height / text_height // Integer division: always rounded down (desirable here)
+            ) - 1 // -1 because we want to leave space for the bottom line
+        );
+        trace!("Drawing {} lines on the display.", num_lines);
+
+        let text_vec = self.multipeek(num_lines).expect("We just checked it's empty!");
 
         /* We do an engineer's estimate that 32 bytes is enough for one line,
         since we can't compute it dynamically from font size.
@@ -313,11 +313,11 @@ where
 
             let text: &str = if self.debug {
                 // If we're in debug mode, we print the value of the element
-                core::write!(&mut buf, "{:?}", text_vec[i_usize]).unwrap();
+                core::write!(&mut buf, "{:?}", text_vec[i_usize])?;
                 buf.as_str()
             } else {
                 // Otherwise, we just print the value as is
-                core::write!(&mut buf, "{}", text_vec[i_usize]).unwrap();
+                core::write!(&mut buf, "{}", text_vec[i_usize])?;
                 buf.as_str()
             };
 
@@ -327,30 +327,29 @@ where
                 self.text_style,
                 Baseline::Top
             )
-            .draw(display_ref)
-            .unwrap();
+            .draw(display_ref)?;
         }
 
-        if flush { display_ref.flush().unwrap(); };
+        if flush { display_ref.flush()?; };
+        Ok(())
     }
 
     /// Pushes a value onto the stack.
     /// If the stack is full, it returns an error with the value that could not be pushed.
-    pub fn push(&mut self, value: T) -> Result<(), T> {
-        let pushed = self.data.push(value);
-        if pushed.is_err() {
+    pub fn push(&mut self, value: T) -> Result<(), CustomError> {
+        if self.data.push(value).is_err() {
             warn!("Tried to push a value onto a full stack, returning Err.");
+            return Err(CustomError::CapacityError);
         }
-        return pushed;
+        Ok(())
     }
 
-    pub fn push_slice(&mut self, slice: &[T]) -> Result<(), ()> {
-        if self.data.len() + slice.len() > MAX_STACK_SIZE {
+    pub fn push_slice(&mut self, slice: &[T]) -> Result<(), CustomError> {
+        if self.data.extend_from_slice(slice).is_err() {
             warn!("Tried to push a slice onto the stack that would overflow it, returning Err.");
-            return Err(());
-        }
-
-        return self.data.extend_from_slice(slice).map_err(|_| ()); // Technically could be unwrapped because of the check above, but better safe than sorry
+            return Err(CustomError::CapacityError);
+        };
+        Ok(())
     }
 
     /// Pops a value from the stack.
@@ -358,13 +357,10 @@ where
     pub fn pop(&mut self) -> Option<T> {
         let popped = self.data.pop();
 
-        match popped {
-            None => {
-                warn!("Tried to pop from an empty stack, returning None.");
-                return None
-            },
-            Some(value) => return Some(value) // We don't need to clone here, since `T` is `Copy`
+        if popped.is_none() {
+            warn!("Tried to pop from an empty stack, returning None.");
         }
+        popped
     }
 
     /// Pops `n` elements from the stack and returns them as a slice.

@@ -341,7 +341,7 @@ fn main() -> ! {
                             continue;
                         }
                     }
-                    stack.draw(true)
+                    stack.draw(true);
                 } else {
                     warn!("Failed to duplicate top element of stack: stack is empty");
                     disp_error(&disp_refcell);
@@ -355,7 +355,7 @@ fn main() -> ! {
                     disp_error(&disp_refcell);
                     continue;
                 };
-                stack.draw(true)
+                stack.draw(true);
             },
 
             's' => { // Swap the top two elements of the stack
