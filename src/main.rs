@@ -142,8 +142,8 @@ fn main() -> ! {
 
     /* Yes, I could just use the default or do with_baseline, but I want to demonstrate both alignment and baseline options.
 
-    The baseline: I'm used to specifying top-left corner instead of some shitty "baseline" where glyphs hang below, like 'p' or 'y'.
-    Do I look to you like a fucking typographer? I'm sleep deprived and just want a predictable position without overlaps!
+    The baseline: I'm used to specifying top-left corner instead of some ####### "baseline" where glyphs hang below, like 'p' or 'y'.
+    Do I look to you like a ####### typographer? I just want a predictable position without overlaps!
     (Well, technically here I'm specifying the top-middle because of center alignment, but still, it's top.)
 
     The alingment: We're aligning to center just to show off. Too impractical in the actual project.
@@ -188,7 +188,7 @@ fn main() -> ! {
 
     Text::with_text_style(
         "Příliš žluťoučký",
-        ((128 / 2), (64 - 15)).into(), // Position: with the used baseline and alignment, this is top-center
+        ((128 / 2), (64 - 15)).into(), // Position: with the used baseline and alignment, this is top-center; 15px from bottom, centered horizontally
         character_style, // Text doesn't do into_styled because there are two "styles"
         text_style,
     ).draw(&mut disp)
