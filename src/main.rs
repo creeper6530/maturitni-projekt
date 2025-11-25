@@ -4,7 +4,8 @@
 #![no_std]
 #![no_main]
 
-const I2C_FREQ_KHZ: u32 = 1000; // 1 MHz, the maximum speed for I²C on the RP2040 (so-called Fast Mode Plus; datasheet 4.3.3), and the SSD1306 can handle it well
+// 1 MHz, the maximum speed for I²C on the RP2040 (so-called Fast Mode Plus; datasheet 4.3.3), and the SSD1306 can handle it well
+const I2C_FREQ: hal::fugit::HertzU32 = hal::fugit::HertzU32::kHz(1000);
 
 use defmt::*;
 use defmt_rtt as _; // We start RTT in no-blocking mode, `probe-run` will switch to blocking mode. That's why we shall not disconnect the probe while the program is running.
@@ -22,7 +23,6 @@ use hal::{
     dma::single_buffer::Config as DmaSingleBufferConfig,
     dma::DMAExt,
 };
-use rp2040_hal::fugit::RateExtU32; // For the `.kHz()` method on u32 integers
 
 // Display imports
 use embedded_graphics::{image::Image, prelude::*};
@@ -93,7 +93,7 @@ fn main() -> ! {
         peri.I2C0,
         pins.gpio8.reconfigure(),
         pins.gpio9.reconfigure(),
-        I2C_FREQ_KHZ.kHz(),
+        I2C_FREQ,
         &mut peri.RESETS,
         &clocks.peripheral_clock,
     );
