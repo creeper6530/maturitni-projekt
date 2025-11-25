@@ -116,7 +116,7 @@ impl DecimalFixed {
                 let (whole_part_str, mut fractional_part_str) = s.split_at(dot_index);
                 fractional_part_str = &fractional_part_str[1..]; // Skip the dot
 
-                let whole_part = whole_part_str.parse::<i64>()?;
+                let whole_part: i64 = whole_part_str.parse::<i64>()?;
                 let fractional_part: i64 = if fractional_part_str.is_empty() {
                     0
                 } else {

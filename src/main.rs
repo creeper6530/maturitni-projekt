@@ -39,7 +39,7 @@ use textbox::*;
 mod decfix;
 use decfix::DecimalFixed;
 mod custom_error;
-use custom_error::CustomError;
+use custom_error::CustomError::{self, *};
 
 const DECFIX_EXPONENT: i8 = -9; // We use 9 decimal places, which is enough for most calculations
 
@@ -130,8 +130,12 @@ fn main() -> ! {
     let mut textbox: _ = CustomTextboxBuilder::new(&disp_refcell)
         .build();
 
-    stack.draw(false);
-    textbox.draw(true);
+    stack.draw(false)
+        .inspect_err(|e| defmt::panic!("Error with display: {:?}", *e))
+        .unwrap(); // Safe since the error would panic
+    textbox.draw(true)
+        .inspect_err(|e| defmt::panic!("Error with display: {:?}", *e))
+        .unwrap(); // Safe since the error would panic
 
     trace!("Waiting for initial DMA transfer to complete, should be instant");
     let (ch0, _, tx) = tx_transfer.wait(); // So that we can reuse them. We don't really care about reclaiming the &'static buffer tho, so we ignore it
@@ -161,15 +165,21 @@ fn main() -> ! {
                     continue; // Ignore empty textbox
                 }
 
-                if let Err(grave) = parse_textbox(&mut textbox, &mut stack, true) {
-                    if grave {
-                        disp_grave_error(&disp_refcell, Some(&mut delay))
-                    } else {
-                        // This has to come first, else the stack would overdraw the error indication
-                        stack.draw(false);
-                        textbox.draw(true);
+                if let Err(e) = parse_textbox(&mut textbox, &mut stack, true) {
+                    match e {
+                        CapacityError |
+                        MathOverflow => {
+                            stack.draw(false)
+                                .inspect_err(|e| defmt::panic!("Error with display: {:?}", *e))
+                                .unwrap();
+                            textbox.draw(true)
+                                .inspect_err(|e| defmt::panic!("Error with display: {:?}", *e))
+                                .unwrap();
 
-                        disp_error(&disp_refcell);
+                            disp_error(&disp_refcell);
+                        },
+                        DisplayError(e) => defmt::panic!("Error with display: {:?}", e),
+                        _ => disp_grave_error(&disp_refcell, Some(&mut delay))
                     }
                 } // Else it's already drawn
             },
@@ -187,7 +197,9 @@ fn main() -> ! {
                     error!("This should normally be impossible, we already checked it's not empty");
                     disp_grave_error(&disp_refcell, Some(&mut delay)); // Diverging too
                 };
-                textbox.draw(true);
+                textbox.draw(true)
+                    .inspect_err(|e| defmt::panic!("Error with display: {:?}", *e))
+                    .unwrap();
 
             },
 
@@ -197,7 +209,9 @@ fn main() -> ! {
                         error!("It should be impossible to fail to append to an empty textbox.");
                         disp_grave_error(&disp_refcell, Some(&mut delay));
                     }
-                    textbox.draw(true);
+                    textbox.draw(true)
+                        .inspect_err(|e| defmt::panic!("Error with display: {:?}", *e))
+                        .unwrap();
                     continue;
                 }
                 if textbox.contains('.') {
@@ -209,7 +223,9 @@ fn main() -> ! {
                     disp_error(&disp_refcell);
                     continue;
                 }
-                textbox.draw(true);
+                textbox.draw(true)
+                    .inspect_err(|e| defmt::panic!("Error with display: {:?}", *e))
+                    .unwrap();
             },
 
             '0'..='9' => { // Digits
@@ -217,22 +233,30 @@ fn main() -> ! {
                     disp_error(&disp_refcell);
                     continue;
                 };
-                textbox.draw(true);
+                textbox.draw(true)
+                    .inspect_err(|e| defmt::panic!("Error with display: {:?}", *e))
+                    .unwrap();
             },
 
             '+' | '-' | '*' | '/' => {
                 if !textbox.is_empty() {
-                    if let Err(grave) = parse_textbox(&mut textbox, &mut stack, false) {
-                        if grave {
-                            disp_grave_error(&disp_refcell, Some(&mut delay))
-                        } else {
-                            // This has to come first, else the stack would overdraw the error indication
-                            stack.draw(false);
-                            textbox.draw(true);
+                    if let Err(e) = parse_textbox(&mut textbox, &mut stack, false) {
+                        match e {
+                        CapacityError |
+                        MathOverflow => {
+                            stack.draw(false)
+                                .inspect_err(|e| defmt::panic!("Error with display: {:?}", *e))
+                                .unwrap();
+                            textbox.draw(true)
+                                .inspect_err(|e| defmt::panic!("Error with display: {:?}", *e))
+                                .unwrap();
 
                             disp_error(&disp_refcell);
-                            continue;
-                        }
+                        },
+                        DisplayError(e) => defmt::panic!("Error with display: {:?}", e),
+                        _ => disp_grave_error(&disp_refcell, Some(&mut delay))
+                        };
+                        continue;
                     } // Else it's already drawn
                 }
 
@@ -249,7 +273,9 @@ fn main() -> ! {
                             '*' => {
                                 let Ok(c) = a.multiply(b) else {
                                     error!("Multiplication errored (overflow?)");
-                                    stack.draw(false);
+                                    stack.draw(false)
+                                        .inspect_err(|e| defmt::panic!("Error with display: {:?}", *e))
+                                        .unwrap();
                                     disp_error(&disp_refcell);
                                     continue;
                                 };
@@ -258,13 +284,17 @@ fn main() -> ! {
                             '/' => {
                                 if b.is_zero() {
                                     error!("Division by zero");
-                                    stack.draw(false);
+                                    stack.draw(false)
+                                        .inspect_err(|e| defmt::panic!("Error with display: {:?}", *e))
+                                        .unwrap();
                                     disp_error(&disp_refcell);
                                     continue;
                                 } else {
                                     let Ok(c) = a.divide(b) else {
                                         error!("Division errored (overflow?)");
-                                        stack.draw(false);
+                                        stack.draw(false)
+                                            .inspect_err(|e| defmt::panic!("Error with display: {:?}", *e))
+                                            .unwrap();
                                         disp_error(&disp_refcell);
                                         continue;
                                     };
@@ -278,7 +308,9 @@ fn main() -> ! {
                     (None, Some(_)) | (None, None) => {
                         // TODO: Perhaps push the one popped number back like in swap?
                         error!("Failed to pop number from stack");
-                        stack.draw(false); // Redraw stack because we popped something
+                        stack.draw(false) // Redraw stack because we popped something
+                            .inspect_err(|e| defmt::panic!("Error with display: {:?}", *e))
+                            .unwrap();
                         disp_error(&disp_refcell); // Must be after stack is drawn in order not to be overdrawn. Always flushes.
                         continue;
                     },
@@ -290,8 +322,12 @@ fn main() -> ! {
                 };
 
                 if stack.push(c).is_ok() {
-                    stack.draw(false);
-                    textbox.draw(true);
+                    stack.draw(false)
+                        .inspect_err(|e| defmt::panic!("Error with display: {:?}", *e))
+                        .unwrap();
+                    textbox.draw(true)
+                        .inspect_err(|e| defmt::panic!("Error with display: {:?}", *e))
+                        .unwrap();
                 } else {
                     error!("Failed to push result onto stack");
                     error!("This should be impossible, the stack should have enough space since we already popped from it.");
@@ -305,7 +341,9 @@ fn main() -> ! {
                     continue;
                 }
                 textbox.clear();
-                textbox.draw(true);
+                textbox.draw(true)
+                    .inspect_err(|e| defmt::panic!("Error with display: {:?}", *e))
+                    .unwrap();
             },
 
             'C' => { // Clear everything (we assume the Shift-C is enough of a modifier)
@@ -316,18 +354,26 @@ fn main() -> ! {
                     (true, false) => {
                         info!("Textbox is empty. Ignoring it.");
                         stack.clear();
-                        stack.draw(true);
+                        stack.draw(true)
+                            .inspect_err(|e| defmt::panic!("Error with display: {:?}", *e))
+                            .unwrap();
                     },
                     (false, true) => {
                         info!("Stack is empty. Ignoring it.");
                         textbox.clear();
-                        textbox.draw(true);
+                        textbox.draw(true)
+                            .inspect_err(|e| defmt::panic!("Error with display: {:?}", *e))
+                            .unwrap();
                     },
                     (false, false) => {
                         textbox.clear();
                         stack.clear();
-                        textbox.draw(false);
-                        stack.draw(true);
+                        textbox.draw(false)
+                            .inspect_err(|e| defmt::panic!("Error with display: {:?}", *e))
+                            .unwrap();
+                        stack.draw(true)
+                            .inspect_err(|e| defmt::panic!("Error with display: {:?}", *e))
+                            .unwrap();
                     }
                 }
             },
@@ -341,7 +387,9 @@ fn main() -> ! {
                             continue;
                         }
                     }
-                    stack.draw(true);
+                    stack.draw(true)
+                        .inspect_err(|e| defmt::panic!("Error with display: {:?}", *e))
+                        .unwrap();
                 } else {
                     warn!("Failed to duplicate top element of stack: stack is empty");
                     disp_error(&disp_refcell);
@@ -355,7 +403,9 @@ fn main() -> ! {
                     disp_error(&disp_refcell);
                     continue;
                 };
-                stack.draw(true);
+                stack.draw(true)
+                    .inspect_err(|e| defmt::panic!("Error with display: {:?}", *e))
+                    .unwrap();
             },
 
             's' => { // Swap the top two elements of the stack
@@ -376,7 +426,9 @@ fn main() -> ! {
                             error!("This should be impossible, the stack should have enough space since we already popped from it.");
                             disp_grave_error(&disp_refcell, Some(&mut delay));
                         };
-                        stack.draw(true);
+                        stack.draw(true)
+                            .inspect_err(|e| defmt::panic!("Error with display: {:?}", *e))
+                            .unwrap();
                     },
                     (None, Some(a)) => {
                         warn!("Failed to swap top two elements of stack: stack has only one element.");
@@ -437,8 +489,12 @@ fn main() -> ! {
                         info!("Doing a forced redraw of both stack and textbox.");
                         
                         // Just to be ultra-sure, we flush both
-                        stack.draw(true);
-                        textbox.draw(true);
+                        stack.draw(true)
+                            .inspect_err(|e| defmt::panic!("Error with display: {:?}", *e))
+                            .unwrap();
+                        textbox.draw(true)
+                            .inspect_err(|e| defmt::panic!("Error with display: {:?}", *e))
+                            .unwrap();
                     },
                     _ => {
                         warn!("Unhandled escape sequence received over UART: {:?}", &buf);
@@ -531,7 +587,7 @@ pub fn parse_textbox<'a, DI, SIZE> (
     textbox: &mut CustomTextbox<'a, DI, SIZE>,
     stack: &mut CustomStack<'a, DecimalFixed, DI, SIZE>,
     flush: bool,
-) -> Result<(), bool>
+) -> Result<(), CustomError>
 where
     DI: WriteOnlyDataCommand,
     SIZE: DisplaySize,
@@ -539,27 +595,12 @@ where
     let txbx_data = textbox.get_text();
     textbox.clear();
 
-    // `let Ok(x) … else` creates the `x` in the outside scope
-    // The `else` block has to diverge = return the `!` never type
-    // XXX: If you change the stack type, you need to change this too
-    let Ok(num) = DecimalFixed::parse_static_exp(txbx_data.as_str(), DECFIX_EXPONENT)
-    else {
-        error!("Failed to parse input as number (ParseIntError)");
-        error!("Textbox either contains invalid characters or the number is out of range.");
-        debug!("Textbox contents: {:?}", txbx_data.as_str());
-        return Err(true)
-    };
+    let num = DecimalFixed::parse_static_exp(txbx_data.as_str(), DECFIX_EXPONENT)?;
 
-    // `if let Err(e)` creates the `e` in the inside scope
-    if let Err(e) = stack.push(num) { // So that we have the `e` -- the number we couldn't push
-        error!("Failed to push number onto stack: {:?}", e);
-        return Err(false)
-    // We don't need the contents of Ok() since it's the unit anyway.
-    // If we did, we'd need a `match` pattern, the `if let` pattern wouldn't suffice.
-    } else {
-        // We save ourselves a double flush call when drawing both, because I²C ops are slow and blocking
-        stack.draw(false);
-        textbox.draw(flush);
-    }
+    stack.push(num)?;
+
+    // We save ourselves a double flush call when drawing both, because I²C ops are slow and blocking
+    stack.draw(false)?;
+    textbox.draw(flush)?;
     Ok(())
 }

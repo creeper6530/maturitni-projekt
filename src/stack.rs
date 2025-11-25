@@ -251,10 +251,8 @@ where
     DI: WriteOnlyDataCommand,
     SIZE: DisplaySize,
 {
-    /// # WIP
-    /// ## TODO: Get error handling better than panickings
-    /// 
     /// Draws the stack on the display.
+    /// Can return DisplayError or FormatError.
     pub fn draw(&self, flush: bool) -> Result<(), CustomError> {
 
         // We're going to operate on the display for the entire method, so no need to wrap it in a scope
@@ -294,7 +292,7 @@ where
         );
         trace!("Drawing {} lines on the display.", num_lines);
 
-        let text_vec = self.multipeek(num_lines).expect("We just checked it's empty!");
+        let text_vec = self.multipeek(num_lines).expect("We just checked the Vec is empty!");
 
         /* We do an engineer's estimate that 32 bytes is enough for one line,
         since we can't compute it dynamically from font size.

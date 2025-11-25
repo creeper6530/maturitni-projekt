@@ -236,6 +236,7 @@ where
     debug: bool,
 }
 
+/// Can return DisplayError only
 #[allow(dead_code)]
 impl<'a, DI, SIZE> CustomTextbox<'a, DI, SIZE>
 where
