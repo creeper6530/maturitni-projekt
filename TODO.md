@@ -1,13 +1,7 @@
-- Get better error handling, no unwrap()-s, or at the very least expect()-s. Panics are for irrecoverable catastrophes.
-  - Especially handle overflows when doing number shit. Currently we have overflow checks in both `debug` and `release` targets, but that's again a panic...
-    - The `a.checked_add(b)` function(s) may help
-- Switch to `rtt-target` in order to be able to finer control RTT, instead of `defmt-rtt`.
-  - Perhaps we could use its probe-to-target comms (= numbers and operations input) in place of UART to rid ourselves of one wire? But then we'd require a probe attached, not a generic UART. We probably won't always need a probe...
-    - Question is, whether it'd be such a great idea, since we'd likely lost the ANSI escape sequences and Ctrl keycombos.
-  - Docs on how to do it [here](https://docs.rs/rtt-target/latest/rtt_target/#defmt-integration).
 - Set the display brightness with a potentiometer
   - Would be polled, datasheet shows no trace of interrupts on value change (duh, there's noise on the ADC input after all)
   - And if we felt super fancy, we could even use a phototransistor as well to implement a turnoffable adaptive brightness
+  - Or could instead simply set the brightness with a command via UART...
 - Figure out a way to do UART receiving asynchronously – without polling, but interrupts, DMA or similar funsies. Just so that we don't block and can go to WFI/WFE sleep.
   - I already tried something and failed miserable. That's why we poll ATM.
   - Maybe I should've gone with async Embassy instead...
