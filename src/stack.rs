@@ -106,7 +106,7 @@ where
     display_refcell: &'a RefCell<Ssd1306<DI, SIZE, BufferedGraphicsMode<SIZE>>>,
     disp_dimensions: DisplayDimensions,
 
-    text_style: MonoTextStyle<'a, BinaryColor>,
+    character_style: MonoTextStyle<'a, BinaryColor>,
     primitives_style: PrimitiveStyle<BinaryColor>,
     primitives_alternate_style: PrimitiveStyle<BinaryColor>,
 }
@@ -131,12 +131,8 @@ where
             disp_dimensions: DisplayDimensions::default(),
             display_refcell,
 
-            // Standard white text on transparent background
-            text_style: MonoTextStyleBuilder::new()
-                .font(&ISO_FONT_6X12)
-                .text_color(BinaryColor::On)
-                //.reset_background_color() // Reset the background color to transparent (unnecessary, but for clarity)
-                .build(),
+            // Standard white text on (by default) transparent background
+            character_style: MonoTextStyle::new(&ISO_FONT_6X12, BinaryColor::On),
 
             // Standard white stroke with 1px width and transparent fill
             primitives_style: PrimitiveStyleBuilder::new()
@@ -161,7 +157,7 @@ where
             disp_dimensions: self.disp_dimensions,
             display_refcell: self.display_refcell,
 
-            text_style: self.text_style,
+            character_style: self.character_style,
             primitives_style: self.primitives_style,
             primitives_alternate_style: self.primitives_alternate_style,
 
@@ -174,8 +170,8 @@ where
         return self;
     }
 
-    pub fn set_text_style(mut self, text_style: MonoTextStyle<'a, BinaryColor>) -> Self {
-        self.text_style = text_style;
+    pub fn set_character_style(mut self, character_style: MonoTextStyle<'a, BinaryColor>) -> Self {
+        self.character_style = character_style;
         return self;
     }
 
@@ -211,7 +207,7 @@ where
             disp_dimensions: self.disp_dimensions,
             display_refcell: self.display_refcell,
 
-            text_style: self.text_style,
+            character_style: self.character_style,
             primitives_style: self.primitives_style,
             primitives_alternate_style: self.primitives_alternate_style,
 
@@ -237,7 +233,7 @@ where
     disp_dimensions: DisplayDimensions,
     display_refcell: &'a RefCell<Ssd1306<DI, SIZE, BufferedGraphicsMode<SIZE>>>,
 
-    text_style: MonoTextStyle<'a, BinaryColor>,
+    character_style: MonoTextStyle<'a, BinaryColor>,
     primitives_style: PrimitiveStyle<BinaryColor>,
     primitives_alternate_style: PrimitiveStyle<BinaryColor>,
 
@@ -261,7 +257,7 @@ where
         let display_ref = display_refmut.deref_mut(); // Get a mutable reference to the display itself, no RefMut
 
         // A convenience variable
-        let text_height = (self.text_style.font.character_size.height - PIXELS_REMOVED as u32) as u8;
+        let text_height = (self.character_style.font.character_size.height - PIXELS_REMOVED as u32) as u8;
         
         // Clear the area where the stack will be drawn
         Rectangle::new(
@@ -321,8 +317,8 @@ where
 
             Text::with_baseline(
                 text,
-                (0, ((self.text_style.font.character_size.height as u8 - PIXELS_REMOVED) * i) as i32).into(),
-                self.text_style,
+                (0, ((self.character_style.font.character_size.height as u8 - PIXELS_REMOVED) * i) as i32).into(),
+                self.character_style,
                 Baseline::Top
             )
             .draw(display_ref)?;

@@ -112,7 +112,7 @@ where
     display_refcell: &'a RefCell<Ssd1306<DI, SIZE, BufferedGraphicsMode<SIZE>>>,
     disp_dimensions: DisplayDimensions,
 
-    text_style: MonoTextStyle<'a, BinaryColor>,
+    character_style: MonoTextStyle<'a, BinaryColor>,
     primitives_style: PrimitiveStyle<BinaryColor>,
     primitives_alternate_style: PrimitiveStyle<BinaryColor>,
 }
@@ -136,12 +136,8 @@ where
             disp_dimensions: DisplayDimensions::default(),
             display_refcell,
 
-            // Standard white text on transparent background
-            text_style: MonoTextStyleBuilder::new()
-                .font(&ISO_FONT_6X12)
-                .text_color(BinaryColor::On)
-                //.reset_background_color() // Reset the background color to transparent (unnecessary, but for clarity)
-                .build(),
+            // Standard white text on (by default) transparent background
+            character_style: MonoTextStyle::new(&ISO_FONT_6X12, BinaryColor::On),
 
             // Standard white stroke with 1px width and transparent fill
             primitives_style: PrimitiveStyleBuilder::new()
@@ -166,7 +162,7 @@ where
             disp_dimensions: self.disp_dimensions,
             display_refcell: self.display_refcell,
 
-            text_style: self.text_style,
+            character_style: self.character_style,
             primitives_style: self.primitives_style,
             primitives_alternate_style: self.primitives_alternate_style,
 
@@ -187,7 +183,7 @@ where
             disp_dimensions: self.disp_dimensions,
             display_refcell: self.display_refcell,
 
-            text_style: self.text_style,
+            character_style: self.character_style,
             primitives_style: self.primitives_style,
             primitives_alternate_style: self.primitives_alternate_style,
 
@@ -200,8 +196,8 @@ where
         return self;
     }
 
-    pub fn set_text_style(mut self, text_style: MonoTextStyle<'a, BinaryColor>) -> Self {
-        self.text_style = text_style;
+    pub fn set_character_style(mut self, character_style: MonoTextStyle<'a, BinaryColor>) -> Self {
+        self.character_style = character_style;
         return self;
     }
 
@@ -229,7 +225,7 @@ where
     disp_dimensions: DisplayDimensions,
     display_refcell: &'a RefCell<Ssd1306<DI, SIZE, BufferedGraphicsMode<SIZE>>>,
 
-    text_style: MonoTextStyle<'a, BinaryColor>,
+    character_style: MonoTextStyle<'a, BinaryColor>,
     primitives_style: PrimitiveStyle<BinaryColor>,
     primitives_alternate_style: PrimitiveStyle<BinaryColor>,
 
@@ -248,7 +244,7 @@ where
         let mut display_refmut = self.display_refcell.borrow_mut();
         let display_ref = display_refmut.deref_mut();
 
-        let text_height = self.text_style.font.character_size.height as u8 - PIXELS_REMOVED;
+        let text_height = self.character_style.font.character_size.height as u8 - PIXELS_REMOVED;
         let textbox_height = text_height + TEXTBOX_OFFSET; // The height of the whole textbox is the height of one line of text plus the offset
 
         Rectangle::with_corners(
@@ -270,7 +266,7 @@ where
         Text::with_baseline(
             self.text.as_str(),
             (0, (self.disp_dimensions.height - textbox_height) as i32).into(), // Top left corner
-            self.text_style,
+            self.character_style,
             Baseline::Top
         )
         .draw(display_ref)?;
@@ -281,10 +277,10 @@ where
             // Draw the cursor under the text
             Rectangle::new(
                 (
-                    self.text.chars().count() as i32 * self.text_style.font.character_size.width as i32 + 1, 
+                    self.text.chars().count() as i32 * self.character_style.font.character_size.width as i32 + 1, 
                     (self.disp_dimensions.height - 1 - cursor_height) as i32
                 ).into(),
-                (self.text_style.font.character_size.width, cursor_height as u32).into()
+                (self.character_style.font.character_size.width, cursor_height as u32).into()
             )
             .into_styled(self.primitives_style)
             .draw(display_ref)?;
