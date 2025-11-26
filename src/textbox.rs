@@ -322,13 +322,13 @@ where
         for _ in 0..count {
             self.text.pop().expect("We already checked, this shouldn't be possible!");
         }
-        return Ok(());
+        Ok(())
     }
 
-    // core::str::pattern::Pattern like in str::contains is unstable, so we only implement the char version for now
+    // core::str::pattern::Pattern trait like in str::contains is unstable, so we implement the char and str versions separately
     // For more info, see: https://github.com/rust-lang/rust/issues/27721
     pub fn contains(&self, pat: char) -> bool {
-        return self.text.contains(pat);
+        self.text.contains(pat)
     }
 
     pub fn clear(&mut self) {
@@ -337,7 +337,7 @@ where
     }
 
     pub fn len(&self) -> usize {
-        return self.text.len();
+        self.text.len()
     }
 
     pub fn is_empty(&self) -> bool {

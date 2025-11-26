@@ -275,7 +275,7 @@ impl DecimalFixed {
         // Multiplying two fixed-point numbers:
         // (value1 * 10^exp1) * (value2 * 10^exp2) = (value1 * value2) * 10^(exp1 + exp2)
         if keep_exponent {
-            if self.exponent != other.exponent { return Err( CustomError::BadInput ) }
+            if self.exponent != other.exponent { return Err( CustomError::Unimplemented ) }
 
             // Due to the scaling (addition of exponents), the value can get very large, so we use i128 here
             let scaled_end_value: i128 = i128::from(self.value).checked_mul(
@@ -304,7 +304,7 @@ impl DecimalFixed {
         // Dividing two fixed-point numbers:
         // (value1 * 10^exp1) / (value2 * 10^exp2) = (value1 / value2) * 10^(exp1 - exp2)
         if keep_exponent {
-            if self.exponent != other.exponent { return Err( CustomError::BadInput ) }
+            if self.exponent != other.exponent { return Err( CustomError::Unimplemented ) }
 
             // We double the exponent in the numerator to keep it the same after division
             if other.value == 0 { return Err( CustomError::BadInput ) }; // Division by zero check

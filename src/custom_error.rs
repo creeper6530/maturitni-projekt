@@ -2,6 +2,7 @@ use core::fmt;
 use core::num::{ParseIntError, IntErrorKind};
 use display_interface::DisplayError;
 use heapless::CapacityError;
+use rp2040_hal::uart::ReadErrorType;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, defmt::Format)]
 #[non_exhaustive] // So that we can add more error types later without breaking compatibility
@@ -14,7 +15,11 @@ pub enum CustomError {
     DisplayError(DisplayErrorClone),
     CapacityError,
 
+    UartReadError(ReadErrorTypeClone),
+
     Unimplemented,
+    Impossible,
+    Cancelled,
     Other
 }
 
@@ -39,6 +44,15 @@ pub enum DisplayErrorClone {
     DataFormatNotImplemented,
     RSError,
     OutOfBoundsError,
+}
+
+// Because ReadErrorType doesn't implement Clone, Copy, PartialEq nor Eq. (It should implement defmt::Format though.)
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, defmt::Format)]
+pub enum ReadErrorTypeClone {
+    Overrun,
+    Break,
+    Parity,
+    Framing
 }
 
 impl fmt::Display for CustomError {
@@ -89,6 +103,17 @@ impl From<DisplayError> for CustomError {
 impl From<CapacityError> for CustomError {
     fn from(_: CapacityError) -> Self {
         CustomError::CapacityError
+    }
+}
+
+impl From<ReadErrorType> for CustomError {
+    fn from(value: ReadErrorType) -> Self {
+        CustomError::UartReadError(match value {
+            ReadErrorType::Overrun => ReadErrorTypeClone::Overrun,
+            ReadErrorType::Break => ReadErrorTypeClone::Break,
+            ReadErrorType::Parity => ReadErrorTypeClone::Parity,
+            ReadErrorType::Framing => ReadErrorTypeClone::Framing
+        })
     }
 }
 
