@@ -166,8 +166,8 @@ fn main() -> ! {
 
         match char_buf {
             '\r' | '\n' => { // Enter or newline
-                if textbox.is_empty() {
-                    continue; // Ignore empty textbox
+                if textbox.is_empty() || textbox.get_text_str() == "-" {
+                    continue; // Ignore empty textbox or textbox with just a minus sign
                 }
 
                 if let Err(e) = parse_textbox(&mut textbox, &mut stack, true) {
@@ -232,6 +232,43 @@ fn main() -> ! {
                 textbox.draw(true)
                     .inspect_err(|e| defmt::panic!("Error with display: {:?}", *e))
                     .unwrap();
+            },
+
+            'n' => { // Negate
+                if textbox.is_empty() {
+                    if textbox.append_char('-').is_err() {
+                        error!("It should be impossible to fail to append to an empty textbox.");
+                        disp_grave_error(&disp_refcell, Some(&mut delay));
+                    }
+                    textbox.draw(true)
+                        .inspect_err(|e| defmt::panic!("Error with display: {:?}", *e))
+                        .unwrap();
+                } else if textbox.starts_with('-') {
+                    if textbox.remove_at(0)
+                        .inspect_err(|e| {
+                            error!("Failed to remove leading '-' from textbox: {:?}", e);
+                            disp_grave_error(&disp_refcell, Some(&mut delay));
+                        }).unwrap() != '-' {
+                        error!("Removed character was not '-', this should be impossible.");
+                        disp_grave_error(&disp_refcell, Some(&mut delay));
+                    }
+
+                    textbox.draw(true)
+                        .inspect_err(|e| defmt::panic!("Error with display: {:?}", *e))
+                        .unwrap();
+                } else if textbox.contains('-') { // Don't need the `&& !starts_with('-')` check, because that was already done above
+                    error!("Textbox contains '-' not at the start, this should be impossible.");
+                    disp_grave_error(&disp_refcell, Some(&mut delay));
+                } else {
+                    if let Err(e) = textbox.insert_at(0, '-') {
+                        error!("Failed to insert leading '-' into textbox: {:?}", e);
+                        disp_error(&disp_refcell);
+                    };
+                    
+                    textbox.draw(true)
+                        .inspect_err(|e| defmt::panic!("Error with display: {:?}", *e))
+                        .unwrap();
+                }
             },
 
             '0'..='9' => { // Digits

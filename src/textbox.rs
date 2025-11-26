@@ -309,8 +309,13 @@ where
         Ok(())
     }
 
+    /// Returns a cloned String of the textbox's text
     pub fn get_text(&self) -> String<TEXT_BUFFER_SIZE> {
         return self.text.clone();
+    }
+    /// Returns a string slice of the textbox's text – only a reference, no cloning
+    pub fn get_text_str(&self) -> &str {
+        return self.text.as_str();
     }
 
     pub fn backspace(&mut self, count: usize) -> Result<(), CustomError> {
@@ -329,6 +334,71 @@ where
     // For more info, see: https://github.com/rust-lang/rust/issues/27721
     pub fn contains(&self, pat: char) -> bool {
         self.text.contains(pat)
+    }
+    pub fn contains_str(&self, pat: &str) -> bool {
+        self.text.contains(pat)
+    }
+
+    pub fn starts_with(&self, pat: char) -> bool {
+        self.text.starts_with(pat)
+    }
+    pub fn starts_with_str(&self, pat: &str) -> bool {
+        self.text.starts_with(pat)
+    }
+
+    pub fn ends_with(&self, pat: char) -> bool {
+        self.text.ends_with(pat)
+    }
+    pub fn ends_with_str(&self, pat: &str) -> bool {
+        self.text.ends_with(pat)
+    }
+
+    pub fn insert_at(&mut self, index: usize, c: char) -> Result<(), CustomError> {
+        if index > self.text.len() {
+            warn!("Tried to insert a character at an out-of-bounds index.");
+            return Err(CustomError::BadInput);
+        }
+        if !self.text.is_char_boundary(index) {
+            warn!("Tried to insert a character at a non-char-boundary index.");
+            return Err(CustomError::BadInput);
+        }
+        if c.len_utf8() + self.text.len() > TEXT_BUFFER_SIZE {
+            warn!("Tried to insert a character that is too long for the textbox, returning Err.");
+            return Err(CustomError::CapacityError);
+        }
+
+        self.text.insert(index, c)?;
+        Ok(())
+    }
+    pub fn insert_str_at(&mut self, index: usize, string: &str) -> Result<(), CustomError> {
+        if index > self.text.len() {
+            warn!("Tried to insert a string at an out-of-bounds index.");
+            return Err(CustomError::BadInput);
+        }
+        if !self.text.is_char_boundary(index) {
+            warn!("Tried to insert a string at a non-char-boundary index.");
+            return Err(CustomError::BadInput);
+        }
+        if string.len() + self.text.len() > TEXT_BUFFER_SIZE {
+            warn!("Tried to insert a string that is too long for the textbox, returning Err.");
+            return Err(CustomError::CapacityError);
+        }
+
+        self.text.insert_str(index, string)?;
+        Ok(())
+    }
+
+    pub fn remove_at(&mut self, index: usize) -> Result<char, CustomError> {
+        if index >= self.text.len() {
+            warn!("Tried to remove a character at an out-of-bounds index.");
+            return Err(CustomError::BadInput);
+        }
+        if !self.text.is_char_boundary(index) {
+            warn!("Tried to remove a character at a non-char-boundary index.");
+            return Err(CustomError::BadInput);
+        }
+
+        Ok(self.text.remove(index))
     }
 
     pub fn clear(&mut self) {
