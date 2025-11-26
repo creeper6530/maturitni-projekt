@@ -21,6 +21,7 @@ use crate::custom_error::CustomError;
 /// - `boot usb` (aliases: `usb boot`, `usb`): Reboot into the USB bootloader
 /// - `redraw` (aliases: `refresh`, `reload`, `r`, `f5`): Force a redraw of both stack and textbox
 ///   - Also can be triggered by pressing F5 or Ctrl-R (technically sending the VT100-style escape codes for those keys)
+/// - `brightness N` (aliases: `brt N`): Set display brightness to a predefined level between 1 and 5
 /// - `clear` (aliases: `cls`, `c`): Clear the stack
 /// - `duplicate` (aliases: `dup`, `d`): Duplicate the top element of the stack
 /// - `drop`: Remove the top element of the stack
@@ -112,19 +113,23 @@ where
             info!("Resetting microcontroller (command 'reset')");
             cortex_m::peripheral::SCB::sys_reset(); // Reset the microcontroller
         },
+
         "halt" => {
             error!("Halting microcontroller (command 'halt')");
             halt(&disp_refcell);
         },
+
         "b" | "bkpt" | "breakpoint" => {
             // Here should be a breakpoint for debugging purposes in your IDE:
             debug!("Breakpoint requested by user (command 'breakpoint')");
         },
+
         "b alt" | "bkpt alt" | "breakpoint alt" => {
             debug!("Alternative breakpoint requested by user (command 'breakpoint alt')");
             // Will cause an exception if no debugger is attached
             cortex_m::asm::bkpt(); // Inline breakpoint instruction
         },
+
         "boot usb" | "usb boot" | "usb" => {
             info!("Rebooting intto USB bootloader (command 'boot usb')");
             {
@@ -133,11 +138,42 @@ where
             }
             hal::rom_data::reset_to_usb_boot(1 << 25, 0); // Pin 25 for activity LED, both MSC and Picoboot enabled.
         },
+
         "r" | "f5" | "refresh" | "reload" | "redraw" => {
             info!("Doing a forced redraw of both stack and textbox. (command 'redraw')");
             stack.draw(true)?;
             textbox.draw(true)?;
         },
+
+        brt_cmd if brt_cmd.starts_with("brt ")
+            || brt_cmd.starts_with("brightness ") => {
+            let split = brt_cmd.rsplit_once(" ")
+                .expect("Should contain a space; we checked in the match guard!");
+
+            if split.0 != "brt" && split.0 != "brightness" {
+                error!("We already checked the command starts with 'brt ' or 'brightness ', why is the first split part not one of those?.
+Must've contained multiple spaces.");
+                return Err(CustomError::BadInput);
+            }
+
+            let brightness_num = split.1.parse::<u8>()?;
+            let brightness = match brightness_num {
+                1 => Brightness::DIMMEST,
+                2 => Brightness::DIM,
+                3 => Brightness::NORMAL,
+                4 => Brightness::BRIGHT,
+                5 => Brightness::BRIGHTEST,
+                _ => {
+                    warn!("Brightness value out of range (1-5): {}", brightness_num);
+                    return Err(CustomError::BadInput);
+                }
+            };
+            {
+                let mut disp = disp_refcell.borrow_mut();
+                disp.set_brightness(brightness)?;
+            };
+        },
+
         "c" | "cls" | "clear" => { // We automatically cleared the textbox when switching to command mode
             if stack.is_empty() {
                 info!("Stack is already empty, ignoring clear command.");
@@ -147,6 +183,7 @@ where
                 stack.draw(true)?;
             }
         },
+
         "d" | "dup" | "duplicate" => {
             if let Some(val) = stack.pop() {
                 for _ in 0..2 { // Two times
@@ -158,6 +195,7 @@ where
                 return Err(CustomError::BadInput);
             }
         },
+
         drop_cmd if drop_cmd.starts_with("drop ") => {
             let split = drop_cmd.rsplit_once(" ")
                 .expect("Should contain a space; we checked in the match guard!");
@@ -175,7 +213,8 @@ Must've contained multiple spaces.");
 
             stack.multipop(count).ok_or(CustomError::BadInput)?;
             stack.draw(true)?;
-        }
+        },
+
         "drop" => {
             if stack.pop().is_none() {
                 warn!("Failed to drop top element of stack: stack is empty.");
@@ -183,6 +222,7 @@ Must've contained multiple spaces.");
             };
             stack.draw(true)?;
         },
+
         "s" | "swap" => {
             // B was pushed later, so it is popped first
             let option_b = stack.pop();
@@ -219,6 +259,7 @@ Must've contained multiple spaces.");
                 },
             };
         },
+
         "" => {
             debug!("Ignoring empty command.");
             textbox.draw(true)?;
@@ -228,6 +269,7 @@ Must've contained multiple spaces.");
             }
             return Err(CustomError::Cancelled);
         },
+        
         _ => {
             warn!("Unknown command received over UART: {:?}", command);
             return Err(CustomError::BadInput);
