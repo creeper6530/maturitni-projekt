@@ -1,7 +1,3 @@
-- Set the display brightness with a potentiometer
-  - Would be polled, datasheet shows no trace of interrupts on value change (duh, there's noise on the ADC input after all)
-  - And if we felt super fancy, we could even use a phototransistor as well to implement a turnoffable adaptive brightness
-  - Or could instead simply set the brightness with a command via UART...
 - Figure out a way to do UART receiving asynchronously – without polling, but interrupts, DMA or similar funsies. Just so that we don't block and can go to WFI/WFE sleep.
   - I already tried something and failed miserable. That's why we poll ATM.
   - Maybe I should've gone with async Embassy instead...
