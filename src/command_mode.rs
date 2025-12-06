@@ -19,8 +19,9 @@ use crate::custom_error::CustomError;
 /// - `breakpoint` (aliases: `bkpt`, `b`): Trigger a breakpoint set in your debugger/IDE
 /// - `breakpoint alt` (aliases: `bkpt alt`, `b alt`): Trigger an inline breakpoint instruction (causes exception if no debugger attached)
 /// - `boot usb` (aliases: `usb boot`, `usb`): Reboot into the USB bootloader
-/// - `redraw` (aliases: `refresh`, `reload`, `r`, `f5`): Force a redraw of both stack and textbox
-///   - Also can be triggered by pressing F5 or Ctrl-R (technically sending the VT100-style escape codes for those keys)
+/// - `redraw` (aliases: `refresh`, `reload`, `r`, `f5`): Force a redraw of stack
+///   - Also can be triggered by pressing F5 or Ctrl-R (technically sending the VT100-style escape codes for those keys),
+///     when it also redraws the textbox.
 /// - `brightness N` (aliases: `brt N`): Set display brightness to a predefined level between 1 and 5
 /// - `clear` (aliases: `cls`, `c`): Clear the stack
 /// - `duplicate` (aliases: `dup`, `d`): Duplicate the top element of the stack
@@ -110,7 +111,7 @@ where
 
     match command {
         "reset" => {
-            info!("Resetting microcontroller (command 'reset')");
+            error!("Resetting microcontroller (command 'reset')");
             cortex_m::peripheral::SCB::sys_reset(); // Reset the microcontroller
         },
 
@@ -131,7 +132,7 @@ where
         },
 
         "boot usb" | "usb boot" | "usb" => {
-            info!("Rebooting intto USB bootloader (command 'boot usb')");
+            info!("Rebooting into USB bootloader (command 'boot usb')");
             {
                 let mut disp = disp_refcell.borrow_mut();
                 disp.set_display_on(false)?;
@@ -140,9 +141,8 @@ where
         },
 
         "r" | "f5" | "refresh" | "reload" | "redraw" => {
-            info!("Doing a forced redraw of both stack and textbox. (command 'redraw')");
+            info!("Doing a forced redraw of stack. (command 'redraw')");
             stack.draw(true)?;
-            textbox.draw(true)?;
         },
 
         brt_cmd if brt_cmd.starts_with("brt ")
