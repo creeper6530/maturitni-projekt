@@ -53,6 +53,8 @@ use crate::custom_error::CustomError; // Because we already have the `mod` in `m
 const MAX_STACK_SIZE: usize = 256;
 /// Maximum number of elements to pop at once
 const MAX_MULTIPOP_SIZE: usize = 16;
+/// Maximum number of elements to push at once
+const MAX_VEC_PUSH_SIZE: usize = 16;
 /** The fonts we use usually have unused pixels at the top that'd waste space,
 so with this constant we basically cut off the top `n` pixels. */
 const PIXELS_REMOVED: u8 = 2;
@@ -77,19 +79,19 @@ pub struct DisplayDimensions {
 
 impl From<(u8, u8)> for DisplayDimensions {
     fn from(dimensions: (u8, u8)) -> Self {
-        return DisplayDimensions {
+        DisplayDimensions {
             width: dimensions.0,
             height: dimensions.1,
-        };
+        }
     }
 }
 
 impl Default for DisplayDimensions {
     fn default() -> Self {
-        return DisplayDimensions {
+        DisplayDimensions {
             width: 128,
             height: 64,
-        };
+        }
     }
 }
 
@@ -97,7 +99,7 @@ impl Default for DisplayDimensions {
 
 pub struct CustomStackBuilder<'a, T, DI, SIZE>
 where
-    T: Copy + core::fmt::Debug + core::fmt::Display,
+    T: core::fmt::Debug + core::fmt::Display,
     DI: WriteOnlyDataCommand,
     SIZE: DisplaySize,
 {
@@ -114,7 +116,7 @@ where
 #[allow(dead_code)]
 impl<'a, T, DI, SIZE> CustomStackBuilder<'a, T, DI, SIZE>
 where
-    T: Copy + core::fmt::Debug + core::fmt::Display,
+    T: core::fmt::Debug + core::fmt::Display,
     DI: WriteOnlyDataCommand,
     SIZE: DisplaySize,
 {
@@ -125,7 +127,7 @@ where
     pub fn new(
         display_refcell: &'a RefCell<Ssd1306<DI, SIZE, BufferedGraphicsMode<SIZE>>>
     ) -> Self {
-        return CustomStackBuilder::<'a, T, DI, SIZE> {
+        CustomStackBuilder::<'a, T, DI, SIZE> {
             data: Vec::new(), // The <T, MAX_STACK_SIZE> is inferred from the type parameters in the struct definition
             
             disp_dimensions: DisplayDimensions::default(),
@@ -147,11 +149,11 @@ where
                 .stroke_color(BinaryColor::Off)
                 .fill_color(BinaryColor::Off)
                 .build(),
-        };
+        }
     }
 
     pub fn build(self) -> CustomStack<'a, T, DI, SIZE> {
-        return CustomStack {
+        CustomStack {
             data: self.data,
 
             disp_dimensions: self.disp_dimensions,
@@ -162,34 +164,34 @@ where
             primitives_alternate_style: self.primitives_alternate_style,
 
             debug: false,
-        };
+        }
     }
 
     pub fn set_disp_dimensions(mut self, dimensions: DisplayDimensions) -> Self {
         self.disp_dimensions = dimensions;
-        return self;
+        self
     }
 
     pub fn set_character_style(mut self, character_style: MonoTextStyle<'a, BinaryColor>) -> Self {
         self.character_style = character_style;
-        return self;
+        self
     }
 
     pub fn set_primitives_style(mut self, primitives_style: PrimitiveStyle<BinaryColor>) -> Self {
         self.primitives_style = primitives_style;
-        return self;
+        self
     }
 
     pub fn set_primitives_alternate_style(mut self, primitives_alternate_style: PrimitiveStyle<BinaryColor>) -> Self {
         self.primitives_alternate_style = primitives_alternate_style;
-        return self;
+        self
     }
 }
 
 #[allow(dead_code)]
 impl<'a, T, DI, SIZE> CustomStackBuilder<'a, T, DI, SIZE>
 where
-    T: Copy + core::fmt::Debug + core::fmt::Display + Default, // We add Default here so that we can use `T::default()`
+    T: core::fmt::Debug + core::fmt::Display + Default, // We add Default here so that we can use `T::default()`
     DI: WriteOnlyDataCommand,
     SIZE: DisplaySize,
 {
@@ -197,11 +199,11 @@ where
         warn!("Building a debug stack, filling it with default values.");
 
         // Fill the stack with default values
-        for i in [T::default(); MAX_STACK_SIZE] {
-            self.data.push(i).expect("We're pushing exactly MAX_STACK_SIZE elements, so this should never fail!");
+        for _ in 0..MAX_STACK_SIZE { // Do it MAX_STACK_SIZE times
+            self.data.push(T::default()).expect("We're pushing exactly MAX_STACK_SIZE elements, so this should never fail!");
         }
 
-        return CustomStack {
+        CustomStack {
             data: self.data,
 
             disp_dimensions: self.disp_dimensions,
@@ -212,7 +214,7 @@ where
             primitives_alternate_style: self.primitives_alternate_style,
 
             debug: true,
-        };
+        }
     }
 }
 
@@ -222,9 +224,7 @@ where
 #[allow(dead_code)]
 pub struct CustomStack<'a, T, DI, SIZE>
 where
-    T: Copy + core::fmt::Debug + core::fmt::Display, /* The `T` type parameter allows the stack to hold any type of data
-                that implements the `Copy` trait (which means they can be duplicated easily),
-                and that can be formatted. */
+    T: core::fmt::Debug + core::fmt::Display, // We dropped the Copy bound in commit after commit 49de9b4250602eb917f56fd749881d5173e65bbb
     DI: WriteOnlyDataCommand,
     SIZE: DisplaySize,
 {
@@ -243,7 +243,7 @@ where
 #[allow(dead_code)]
 impl<'a, T, DI, SIZE> CustomStack<'a, T, DI, SIZE>
 where
-    T: Copy + core::fmt::Debug + core::fmt::Display,
+    T: core::fmt::Debug + core::fmt::Display,
     DI: WriteOnlyDataCommand,
     SIZE: DisplaySize,
 {
@@ -330,6 +330,9 @@ where
 
     /// Pushes a value onto the stack.
     /// If the stack is full, it returns an error with the value that could not be pushed.
+    /// 
+    /// We need ownership of the value to push it onto the stack.
+    /// (In reality it's trivial to since DecimalFixed we use is Copy)
     pub fn push(&mut self, value: T) -> Result<(), CustomError> {
         if self.data.push(value).is_err() {
             warn!("Tried to push a value onto a full stack, returning Err.");
@@ -338,11 +341,23 @@ where
         Ok(())
     }
 
-    pub fn push_slice(&mut self, slice: &[T]) -> Result<(), CustomError> {
-        if self.data.extend_from_slice(slice).is_err() {
-            warn!("Tried to push a slice onto the stack that would overflow it, returning Err.");
+    /// Pushes multiple values onto the stack from a Vec.
+    /// If the stack does not have enough space for all values, it returns an error.
+    /// 
+    /// We use a Vec because it has a known length at runtime and ownership of the data.
+    /// For slices that are composed of Clone types, use `push_slice()`.
+    pub fn push_vec(&mut self, value: Vec<T, MAX_VEC_PUSH_SIZE>) -> Result<(), CustomError> {
+        if self.data.len() + value.len() > MAX_STACK_SIZE {
+            warn!("Tried to push a Vec onto the stack that would overflow it, returning Err.");
             return Err(CustomError::CapacityError);
-        };
+        }
+        
+        for v in value.into_iter() {
+            if self.data.push(v).is_err() {
+                error!("We already checked for capacity, so this should never happen!");
+                return Err(CustomError::Impossible);
+            }
+        }
         Ok(())
     }
 
@@ -364,30 +379,28 @@ where
     /// The topmost element is the last element in the returned vector.
     /// 
     /// A const controls the maximum number of elements that can be popped at once.
-    /// We need the Vec because returning a slice would not copy the data, just reference them.
+    /// We need the Vec because we cannot return a slice that references data that we immediately remove from the stack.
     pub fn multipop(&mut self, n: u8) -> Option<Vec<T, MAX_MULTIPOP_SIZE>> {
-        let peeked = self.multipeek(n)?; // Use `multipeek` to get the last `n` elements with all the checks
-        // Notice that we use `?` to handle the case where `multipeek` returns `None`
-
-        for _ in 0..(peeked.len()) {
-            self.data.pop(); // Pop the elements from the stack, drop the output, since we already have them in `peeked`
+        if self.data.is_empty() {
+            warn!("Tried to multipop from an empty stack, returning None.");
+            return None;
         }
 
-        return Some(peeked);
+        let iterator = self.data.drain(self.data.len().saturating_sub(n as usize)..);
+        // The turbofish isn't strictly necessary, it can infer it from the function signature, but for clarity we leave it here.
+        Some(iterator.collect::<Vec<T, MAX_MULTIPOP_SIZE>>())
     }
 
     /// Returns the last value pushed onto the stack without removing it.
     /// If the stack is empty, it returns `None`.
-    pub fn peek(&self) -> Option<T> {
+    pub fn peek(&self) -> Option<&T> {
         let last = self.data.last();
 
-        match last {
-            None => {
-                warn!("Tried to peek into an empty stack, returning None.");
-                return None;
-            },
-            Some(value) => return Some(*value) // We can dereference the last element instead of .clone() since `T` is `Copy`
+        if last.is_none() {
+            warn!("Tried to peek into an empty stack, returning None.");
         }
+
+        last
     }
 
     /// Returns the last `n` values pushed onto the stack without removing them as a slice.
@@ -396,10 +409,11 @@ where
     /// 
     /// The topmost element is the last element in the returned slice.
     /// 
-    /// A const controls the maximum number of elements that can be popped at once.
-    /// We need the Vec because returning a slice would not copy the data, just reference them.
-    pub fn multipeek(&self, n: u8) -> Option<Vec<T, MAX_MULTIPOP_SIZE>> {
-        let n = n as usize;
+    /// For efficiency's sake, we return a slice.
+    pub fn multipeek(&self, n: u8) -> Option<&[T]> {
+        let n = n as usize; // Shadow the n parameter as usize for easier usage.
+        // Perhaps simply changing the parameter type to usize would be better??? Not like it saves any memory, it likely gets passed in a register anyway.
+        // TODO: Test it.
 
         if self.data.is_empty() {
             warn!("Tried to peek into an empty stack, returning None.");
@@ -408,12 +422,11 @@ where
         
         if n > self.data.len() {
             warn!("Tried to peek further than the stack size, returning the entire stack.");
-            return Vec::from_slice(self.data.as_slice()).ok(); // Not very obvious, but we are cloning the slice
+            return Some(self.data.as_slice());
         }
 
-        let slice = &self.data[self.data.len() - n..]; // Get the last `n` elements as a slice
-
-        return Vec::from_slice(slice).ok();
+        Some(&self.data[self.data.len().saturating_sub(n)..]) // Get the last `n` elements as a slice.
+        // The `saturating_sub` is just for safety, does the same as the earlier check, returning the entire stack if n > len, since it's usize.
     }
 
     /// Clears the entire stack
@@ -426,10 +439,31 @@ where
     }
 
     pub fn len(&self) -> usize {
-        return self.data.len();
+        self.data.len()
     }
 
     pub fn is_empty(&self) -> bool {
         self.data.is_empty()
+    }
+}
+
+#[allow(dead_code)]
+impl<'a, T, DI, SIZE> CustomStack<'a, T, DI, SIZE>
+where
+    T: core::fmt::Debug + core::fmt::Display + Copy, // We need Copy here to be able to copy the slice elements (since we can't really own the slice)
+    DI: WriteOnlyDataCommand,
+    SIZE: DisplaySize,
+{
+    /// Pushes multiple values onto the stack from a slice.
+    /// If the stack does not have enough space for all values, it returns an error.
+    ///
+    /// We need the `Copy` bound on `T` to be able to copy the elements from the slice.
+    /// To push multiple values from a Vec that owns the values, use `push_vec()`.
+    pub fn push_slice(&mut self, slice: &[T]) -> Result<(), CustomError> {
+        if self.data.extend_from_slice(slice).is_err() {
+            warn!("Tried to push a slice onto the stack that would overflow it, returning Err.");
+            return Err(CustomError::CapacityError);
+        };
+        Ok(())
     }
 }

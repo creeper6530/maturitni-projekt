@@ -4,6 +4,10 @@
 #![no_std]
 #![no_main]
 
+// We currently don't write any unsafe functions, but if we did,
+// this would ensure that we mark all unsafe operations within them explicitly.
+#![deny(unsafe_op_in_unsafe_fn)]
+
 // 1 MHz, the maximum speed for I²C on the RP2040 (so-called Fast Mode Plus; datasheet 4.3.3), and the SSD1306 can handle it well
 const I2C_FREQ: hal::fugit::HertzU32 = hal::fugit::HertzU32::kHz(1000);
 
@@ -128,11 +132,11 @@ fn main() -> ! {
 
     // ----------------------------------------------------------------------------
 
-    let disp_refcell: RefCell<Ssd1306<I2CInterface<rp2040_hal::I2C<pac::I2C0, (rp2040_hal::gpio::Pin<rp2040_hal::gpio::bank0::Gpio8, rp2040_hal::gpio::FunctionI2c, rp2040_hal::gpio::PullUp>, rp2040_hal::gpio::Pin<rp2040_hal::gpio::bank0::Gpio9, rp2040_hal::gpio::FunctionI2c, rp2040_hal::gpio::PullUp>)>>, DisplaySize128x64, ssd1306::mode::BufferedGraphicsMode<DisplaySize128x64>>> = RefCell::new(disp);
+    let disp_refcell = RefCell::new(disp);
     // Range of i32 is `-2147483648..=2147483647`
     let mut stack: CustomStack<'_, DecimalFixed, _, _> = CustomStackBuilder::<'_, DecimalFixed, _, _>::new(&disp_refcell) // We're using the turbofish syntax here
         .build();
-    let mut textbox: _ = CustomTextboxBuilder::new(&disp_refcell)
+    let mut textbox = CustomTextboxBuilder::new(&disp_refcell)
         .build();
 
     stack.draw(false)
@@ -148,8 +152,13 @@ fn main() -> ! {
     let _new_tx_transfer = DmaSingleBufferConfig::new(ch0, b"Entering main loop\r\n", tx).start(); // Send another message with DMA, this time we don't need to reclaim the channel, so we don't wait for it to finish
     info!("Entering main loop");
 
-    loop {
-        let mut buf: [u8; 1] = [0];
+    // We declare these outside the loop to avoid stack reallocation on each iteration.
+    // It's possible that it could overflow the stack if we relied on optimization to refrain from infinite shadowing.
+    let mut buf: [u8; 1] = [0]; // We do need to initialize it even if we overwrite it immediately. We read **one** byte at a time.
+    let mut char_buf: char;
+
+    // Label the main loop so we can call `continue` simpler-ly (more simply?) in case of errors if there were nested loops.
+    'main: loop {
         if let Err(e) = rx.read_full_blocking(&mut buf) { // TODO: Figure out a way to do this non-blocking, perhaps with DMA and/or an interrupt. I tried and failed miserably. Maybe I should just have used an async executor like Embassy.
             error!("Failed to read from UART: {:?}", e);
             if let hal::uart::ReadErrorType::Break = e {
@@ -159,15 +168,15 @@ fn main() -> ! {
             disp_error(&disp_refcell);
             warn!("Delaying for a second before trying to read again");
             delay.delay_ms(1000); // Wait a second before trying again, to avoid spamming the error indication
-            continue;
+            continue 'main;
         }
 
-        let char_buf = char::from_u32(buf[0] as u32).unwrap_or('?'); // Replace invalid UTF-8 with a replacement character
+        char_buf = char::from_u32(buf[0] as u32).unwrap_or('?'); // Replace invalid UTF-8 with a replacement character
 
         match char_buf {
             '\r' | '\n' => { // Enter or newline
                 if textbox.is_empty() || textbox.get_text_str() == "-" {
-                    continue; // Ignore empty textbox or textbox with just a minus sign
+                    continue 'main; // Ignore empty textbox or textbox with just a minus sign
                 }
 
                 if let Err(e) = parse_textbox(&mut textbox, &mut stack, true) {
@@ -196,7 +205,7 @@ fn main() -> ! {
 
                 if textbox.is_empty() {
                     debug!("Ignoring backspace on empty textbox.");
-                    continue; // Diverging, does not continue forwards
+                    continue 'main; // Diverging, does not continue forwards
                 };
                 if textbox.backspace(1).is_err() {
                     error!("Failed to backspace textbox");
@@ -218,16 +227,16 @@ fn main() -> ! {
                     textbox.draw(true)
                         .inspect_err(|e| defmt::panic!("Error with display: {:?}", *e))
                         .unwrap();
-                    continue;
+                    continue 'main;
                 }
                 if textbox.contains('.') {
                     debug!("Ignoring decimal point, textbox already contains one");
-                    continue;
+                    continue 'main;
                 }
                 if textbox.append_char('.').is_err() {
                     // All the warnings were already emitted in the `append_char()` method
                     disp_error(&disp_refcell);
-                    continue;
+                    continue 'main;
                 }
                 textbox.draw(true)
                     .inspect_err(|e| defmt::panic!("Error with display: {:?}", *e))
@@ -274,7 +283,7 @@ fn main() -> ! {
             '0'..='9' => { // Digits
                 if textbox.append_char(char_buf).is_err() {
                     disp_error(&disp_refcell);
-                    continue;
+                    continue 'main;
                 };
                 textbox.draw(true)
                     .inspect_err(|e| defmt::panic!("Error with display: {:?}", *e))
@@ -282,28 +291,30 @@ fn main() -> ! {
             },
 
             '+' | '-' | '*' | '/' => {
-                if !textbox.is_empty() {
-                    if let Err(e) = parse_textbox(&mut textbox, &mut stack, false) {
-                        match e {
-                        CapacityError |
-                        MathOverflow |
-                        ParseIntError(IntErrorKindClone::PosOverflow | IntErrorKindClone::NegOverflow) => {
-                            error!("Error parsing textbox: {:?}", e);
-                            stack.draw(false)
-                                .inspect_err(|e| defmt::panic!("Error with display: {:?}", *e))
-                                .unwrap();
-                            textbox.draw(true)
-                                .inspect_err(|e| defmt::panic!("Error with display: {:?}", *e))
-                                .unwrap();
+                // Clippy offered to collapse two nested ifs into one with &&
+                // The short-circuiting is desirable: if it's empty, we never run `parse_textbox()`
+                if !textbox.is_empty()
+                    && let Err(e) = parse_textbox(&mut textbox, &mut stack, false)
+                {
+                    match e {
+                    CapacityError |
+                    MathOverflow |
+                    ParseIntError(IntErrorKindClone::PosOverflow | IntErrorKindClone::NegOverflow) => {
+                        error!("Error parsing textbox: {:?}", e);
+                        stack.draw(false)
+                            .inspect_err(|e| defmt::panic!("Error with display: {:?}", *e))
+                            .unwrap();
+                        textbox.draw(true)
+                            .inspect_err(|e| defmt::panic!("Error with display: {:?}", *e))
+                            .unwrap();
 
-                            disp_error(&disp_refcell);
-                        },
-                        DisplayError(e) => defmt::panic!("Error with display: {:?}", e),
-                        _ => disp_grave_error(&disp_refcell, Some(&mut delay))
-                        };
-                        continue;
-                    } // Else it's already drawn
-                }
+                        disp_error(&disp_refcell);
+                    },
+                    DisplayError(e) => defmt::panic!("Error with display: {:?}", e),
+                    _ => disp_grave_error(&disp_refcell, Some(&mut delay))
+                    };
+                    continue 'main;
+                } // Else it's already drawn
 
                 // Since the stack is LIFO, the A is the one pushed earlier, so it is popped later
                 // So that for "5 6 -", we do 5 - 6, not 6 - 5
@@ -321,7 +332,7 @@ fn main() -> ! {
                                         .inspect_err(|e| defmt::panic!("Error with display: {:?}", *e))
                                         .unwrap();
                                     disp_error(&disp_refcell);
-                                    continue;
+                                    continue 'main;
                                 }
                             },
                             '-' => match a.subtract(b) {
@@ -332,7 +343,7 @@ fn main() -> ! {
                                         .inspect_err(|e| defmt::panic!("Error with display: {:?}", *e))
                                         .unwrap();
                                     disp_error(&disp_refcell);
-                                    continue;
+                                    continue 'main;
                                 }
                             },
                             '*' => {
@@ -344,7 +355,7 @@ fn main() -> ! {
                                             .inspect_err(|e| defmt::panic!("Error with display: {:?}", *e))
                                             .unwrap();
                                         disp_error(&disp_refcell);
-                                        continue;
+                                        continue 'main;
                                     }
                                 }
                             }
@@ -357,7 +368,7 @@ fn main() -> ! {
                                             .inspect_err(|e| defmt::panic!("Error with display: {:?}", *e))
                                             .unwrap();
                                         disp_error(&disp_refcell);
-                                        continue;
+                                        continue 'main;
                                     },
                                     Err(e) => {
                                         error!("Error in division: {:?}", e);
@@ -365,7 +376,7 @@ fn main() -> ! {
                                             .inspect_err(|e| defmt::panic!("Error with display: {:?}", *e))
                                             .unwrap();
                                         disp_error(&disp_refcell);
-                                        continue;
+                                        continue 'main;
                                     }
                                 }
                             },
@@ -380,7 +391,7 @@ fn main() -> ! {
                             .inspect_err(|e| defmt::panic!("Error with display: {:?}", *e))
                             .unwrap();
                         disp_error(&disp_refcell); // Must be after stack is drawn in order not to be overdrawn. Always flushes.
-                        continue;
+                        continue 'main;
                     },
 
                     (Some(_), None) => {
@@ -509,7 +520,7 @@ fn main() -> ! {
 
             _ => {
                 warn!("Unhandled character received over UART: {:?} (0x{:X})", char_buf, buf[0]);
-                continue; // Ignore the character
+                continue 'main; // Ignore the character
             },
         }
     };
@@ -519,8 +530,8 @@ fn main() -> ! {
 /// Display a simple error indication on the display.
 /// If `grave` is true, it inverts the display to indicate a grave error and resets,
 /// otherwise it only shows a simple error indication.
-pub fn disp_grave_error<'a, DI, SIZE>(
-    disp_refcell: &'a RefCell<Ssd1306<DI, SIZE, BufferedGraphicsMode<SIZE>>>,
+pub fn disp_grave_error<DI, SIZE>(
+    disp_refcell: &RefCell<Ssd1306<DI, SIZE, BufferedGraphicsMode<SIZE>>>,
     maybe_delay: Option<&mut cortex_m::delay::Delay>
 ) -> !
 where 
@@ -548,10 +559,9 @@ where
     cortex_m::peripheral::SCB::sys_reset(); // Reset the microcontroller
 }
 
-pub fn disp_error<'a, DI, SIZE> (
-    disp_refcell: &'a RefCell<Ssd1306<DI, SIZE, BufferedGraphicsMode<SIZE>>>,
-) -> ()
-where
+pub fn disp_error<DI, SIZE> (
+    disp_refcell: &RefCell<Ssd1306<DI, SIZE, BufferedGraphicsMode<SIZE>>>,
+) where
     DI: WriteOnlyDataCommand,
     SIZE: DisplaySize,
 {
@@ -581,15 +591,17 @@ where
     DI: WriteOnlyDataCommand,
     SIZE: DisplaySize,
 {
-    let txbx_data = textbox.get_text();
-    textbox.clear();
-
-    let num = DecimalFixed::parse_static_exp(txbx_data.as_str(), DECFIX_EXPONENT)?;
+    let txbx_data = textbox.get_text_str();
+    if txbx_data.is_empty() { return Err(BadInput); };
+    
+    let num = DecimalFixed::parse_static_exp(txbx_data, DECFIX_EXPONENT)?;
 
     stack.push(num)?;
 
     // We save ourselves a double flush call when drawing both, because I²C ops are slow and blocking
     stack.draw(false)?;
     textbox.draw(flush)?;
+
+    textbox.clear();
     Ok(())
 }

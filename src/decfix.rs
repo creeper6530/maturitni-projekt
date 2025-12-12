@@ -2,7 +2,11 @@ use defmt::Format;
 #[allow(unused_imports)]
 use defmt::{trace, debug, info, warn, error, panic, unreachable, unimplemented, todo};
 use heapless::format;
-use core::{fmt::Display, ops::{Add, Sub, Neg, Mul, Div}, str::FromStr};
+use core::{
+    fmt::Display,
+    ops::{Add, Sub, Neg, Mul, Div},
+    str::FromStr
+};
 
 use crate::custom_error::CustomError; // Because we already have the `mod` in `main.rs`
 
@@ -111,14 +115,16 @@ impl DecimalFixed {
     /// 
     /// If you want to parse a string and let the exponent adjust dynamically to your input, use `str::parse::<DecimalFixed>()` instead.
     pub fn parse_static_exp(s: &str, exp: i8) -> Result<Self, CustomError> {
+        if s.is_empty() { return Err( CustomError::BadInput ) };
+
         match s.find('.') {
             Some(dot_index) => {
                 let (whole_part_str, mut fractional_part_str) = s.split_at(dot_index);
                 fractional_part_str = &fractional_part_str[1..]; // Skip the dot
 
-                let whole_part: i64 = whole_part_str.parse::<i64>()?;
-                let fractional_part: i64 = if fractional_part_str.is_empty() {
-                    0
+                let whole_part = whole_part_str.parse::<i64>()?;
+                let fractional_part = if fractional_part_str.is_empty() {
+                    0_i64
                 } else {
                     let buf_string;
                     if exp >= 0 { return Err(CustomError::Unimplemented); } // TODO: Handle this case if needed
@@ -138,7 +144,7 @@ impl DecimalFixed {
                         // do nothing
                     }*/
 
-                    fractional_part_str.parse()?
+                    fractional_part_str.parse::<i64>()?
                 };
 
                 let mut value = whole_part.checked_mul(

@@ -84,19 +84,19 @@ pub struct DisplayDimensions {
 
 impl From<(u8, u8)> for DisplayDimensions {
     fn from(dimensions: (u8, u8)) -> Self {
-        return DisplayDimensions {
+        DisplayDimensions {
             width: dimensions.0,
             height: dimensions.1,
-        };
+        }
     }
 }
 
 impl Default for DisplayDimensions {
     fn default() -> Self {
-        return DisplayDimensions {
+        DisplayDimensions {
             width: 128,
             height: 64,
-        };
+        }
     }
 }
 
@@ -130,7 +130,7 @@ where
     pub fn new(
         display_refcell: &'a RefCell<Ssd1306<DI, SIZE, BufferedGraphicsMode<SIZE>>>
     ) -> Self {
-        return CustomTextboxBuilder {
+        CustomTextboxBuilder {
             text: String::new(),
             
             disp_dimensions: DisplayDimensions::default(),
@@ -152,11 +152,11 @@ where
                 .stroke_color(BinaryColor::Off)
                 .fill_color(BinaryColor::Off)
                 .build(),
-        };
+        }
     }
 
     pub fn build(self) -> CustomTextbox<'a, DI, SIZE> {
-        return CustomTextbox {
+        CustomTextbox {
             text: self.text,
 
             disp_dimensions: self.disp_dimensions,
@@ -167,7 +167,7 @@ where
             primitives_alternate_style: self.primitives_alternate_style,
 
             debug: false,
-        };
+        }
     }
 
     pub fn build_debug(mut self) -> CustomTextbox<'a, DI, SIZE> {
@@ -176,7 +176,7 @@ where
         self.text.clear();
         self.text.push_str("DEBUG TEXTBOX").expect("TEXT_BUFFER_SIZE is too small for the debug message!");
 
-        return CustomTextbox {
+        CustomTextbox {
             // Fill the text with a debug message
             text: self.text,
 
@@ -188,27 +188,27 @@ where
             primitives_alternate_style: self.primitives_alternate_style,
 
             debug: true,
-        };
+        }
     }
 
     pub fn set_disp_dimensions(mut self, dimensions: DisplayDimensions) -> Self {
         self.disp_dimensions = dimensions;
-        return self;
+        self
     }
 
     pub fn set_character_style(mut self, character_style: MonoTextStyle<'a, BinaryColor>) -> Self {
         self.character_style = character_style;
-        return self;
+        self
     }
 
     pub fn set_primitives_style(mut self, primitives_style: PrimitiveStyle<BinaryColor>) -> Self {
         self.primitives_style = primitives_style;
-        return self;
+        self
     }
 
     pub fn set_primitives_alternate_style(mut self, primitives_alternate_style: PrimitiveStyle<BinaryColor>) -> Self {
         self.primitives_alternate_style = primitives_alternate_style;
-        return self;
+        self
     }
 }
 
@@ -302,20 +302,21 @@ where
     }
 
     pub fn append_char(&mut self, c: char) -> Result<(), CustomError> {
-        if self.text.push(c).is_err() {
-            warn!("Tried to append a character that is too long for the textbox, returning Err.");
-            return Err(CustomError::CapacityError);
-        };
-        Ok(())
+        // We could possibly drop the error message and just use the question mark operator
+        self.text.push(c)
+            .map_err(|_| {
+                warn!("Tried to append a character that is too long for the textbox, returning Err.");
+                CustomError::CapacityError
+            })
     }
 
     /// Returns a cloned String of the textbox's text
     pub fn get_text(&self) -> String<TEXT_BUFFER_SIZE> {
-        return self.text.clone();
+        self.text.clone()
     }
     /// Returns a string slice of the textbox's text – only a reference, no cloning
     pub fn get_text_str(&self) -> &str {
-        return self.text.as_str();
+        self.text.as_str()
     }
 
     pub fn backspace(&mut self, count: usize) -> Result<(), CustomError> {
@@ -330,7 +331,8 @@ where
         Ok(())
     }
 
-    // core::str::pattern::Pattern trait like in str::contains is unstable, so we implement the char and str versions separately
+    // core::str::pattern::Pattern trait like in str::contains is unstable, so we implement the char and str versions separately.
+    // Too much hassle to implement a custom trait or to use nightly just for this.
     // For more info, see: https://github.com/rust-lang/rust/issues/27721
     pub fn contains(&self, pat: char) -> bool {
         self.text.contains(pat)

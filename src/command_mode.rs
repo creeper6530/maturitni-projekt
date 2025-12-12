@@ -117,7 +117,7 @@ where
 
         "halt" => {
             error!("Halting microcontroller (command 'halt')");
-            halt(&disp_refcell);
+            halt(disp_refcell);
         },
 
         "b" | "bkpt" | "breakpoint" => {
@@ -284,8 +284,8 @@ Must've contained multiple spaces.");
     Ok(())
 }
 
-fn halt<'a, DI, SIZE>(
-    disp_refcell: &'a RefCell<Ssd1306<DI, SIZE, BufferedGraphicsMode<SIZE>>>
+fn halt<DI, SIZE>(
+    disp_refcell: &RefCell<Ssd1306<DI, SIZE, BufferedGraphicsMode<SIZE>>>
 ) -> !
 where 
     DI: WriteOnlyDataCommand,
