@@ -99,7 +99,6 @@ impl Default for DisplayDimensions {
 
 pub struct CustomStackBuilder<'a, T, DI, SIZE>
 where
-    T: core::fmt::Debug + core::fmt::Display,
     DI: WriteOnlyDataCommand,
     SIZE: DisplaySize,
 {
@@ -110,13 +109,11 @@ where
 
     character_style: MonoTextStyle<'a, BinaryColor>,
     primitives_style: PrimitiveStyle<BinaryColor>,
-    primitives_alternate_style: PrimitiveStyle<BinaryColor>,
 }
 
 #[allow(dead_code)]
 impl<'a, T, DI, SIZE> CustomStackBuilder<'a, T, DI, SIZE>
 where
-    T: core::fmt::Debug + core::fmt::Display,
     DI: WriteOnlyDataCommand,
     SIZE: DisplaySize,
 {
@@ -142,13 +139,6 @@ where
                 .stroke_color(BinaryColor::On)
                 //.reset_fill_color() // Reset the fill color to transparent (unnecessary, but for clarity)
                 .build(),
-
-            // Standard black stroke with 1px width and black fill
-            primitives_alternate_style: PrimitiveStyleBuilder::new()
-                .stroke_width(1)
-                .stroke_color(BinaryColor::Off)
-                .fill_color(BinaryColor::Off)
-                .build(),
         }
     }
 
@@ -161,9 +151,6 @@ where
 
             character_style: self.character_style,
             primitives_style: self.primitives_style,
-            primitives_alternate_style: self.primitives_alternate_style,
-
-            debug: false,
         }
     }
 
@@ -181,17 +168,12 @@ where
         self.primitives_style = primitives_style;
         self
     }
-
-    pub fn set_primitives_alternate_style(mut self, primitives_alternate_style: PrimitiveStyle<BinaryColor>) -> Self {
-        self.primitives_alternate_style = primitives_alternate_style;
-        self
-    }
 }
 
 #[allow(dead_code)]
 impl<'a, T, DI, SIZE> CustomStackBuilder<'a, T, DI, SIZE>
 where
-    T: core::fmt::Debug + core::fmt::Display + Default, // We add Default here so that we can use `T::default()`
+    T: Default, // We add Default here so that we can use `T::default()`
     DI: WriteOnlyDataCommand,
     SIZE: DisplaySize,
 {
@@ -200,7 +182,9 @@ where
 
         // Fill the stack with default values
         for _ in 0..MAX_STACK_SIZE { // Do it MAX_STACK_SIZE times
-            self.data.push(T::default()).expect("We're pushing exactly MAX_STACK_SIZE elements, so this should never fail!");
+            self.data.push(T::default())
+                // This is like `.expect()`, but without a Debug bound on T
+                .unwrap_or_else(|_| defmt::panic!("We're pushing exactly MAX_STACK_SIZE elements, so this should never fail!"));
         }
 
         CustomStack {
@@ -211,9 +195,6 @@ where
 
             character_style: self.character_style,
             primitives_style: self.primitives_style,
-            primitives_alternate_style: self.primitives_alternate_style,
-
-            debug: true,
         }
     }
 }
@@ -223,8 +204,7 @@ where
 /// All getters of this struct copy the data, not give a reference to it.
 #[allow(dead_code)]
 pub struct CustomStack<'a, T, DI, SIZE>
-where
-    T: core::fmt::Debug + core::fmt::Display, // We dropped the Copy bound in commit after commit 49de9b4250602eb917f56fd749881d5173e65bbb
+where // We dropped the Copy bound in commit b570971032f7a7de6d69c37402bddd0ee0cb40b2 and Debug/Display in commit right after
     DI: WriteOnlyDataCommand,
     SIZE: DisplaySize,
 {
@@ -235,99 +215,14 @@ where
 
     character_style: MonoTextStyle<'a, BinaryColor>,
     primitives_style: PrimitiveStyle<BinaryColor>,
-    primitives_alternate_style: PrimitiveStyle<BinaryColor>,
-
-    debug: bool,
 }
 
 #[allow(dead_code)]
 impl<'a, T, DI, SIZE> CustomStack<'a, T, DI, SIZE>
 where
-    T: core::fmt::Debug + core::fmt::Display,
     DI: WriteOnlyDataCommand,
     SIZE: DisplaySize,
 {
-    /// Draws the stack on the display.
-    /// Can return DisplayError or FormatError.
-    pub fn draw(&self, flush: bool) -> Result<(), CustomError> {
-
-        // We're going to operate on the display for the entire method, so no need to wrap it in a scope
-        // It will get automatically dropped at the end of the method
-        let mut display_refmut = self.display_refcell.borrow_mut();
-        let display_ref = display_refmut.deref_mut(); // Get a mutable reference to the display itself, no RefMut
-
-        // A convenience variable
-        let text_height = (self.character_style.font.character_size.height - PIXELS_REMOVED as u32) as u8;
-        
-        // Clear the area where the stack will be drawn
-        Rectangle::new(
-            (0, 0).into(),
-            (self.disp_dimensions.width as u32, (text_height * ((self.disp_dimensions.height / text_height) - 1)) as u32).into() // We always clear the entire area, e.g. when popping elements
-        )
-        .into_styled(
-            if self.debug {
-                self.primitives_style // If we're in debug mode, we use the normal style to draw white boundaries
-            } else {
-                self.primitives_alternate_style // Otherwise, we use the alternate style to draw a black rectangle - clearing the area
-            }
-        )
-        .draw(display_ref)?;
-
-        if self.data.is_empty() {
-            // If the stack is empty, we don't need to draw anything so we expediently return
-            if flush { display_ref.flush()?; };
-            return Ok(());
-        }
-
-        // If there is less data than the display can show, we just draw all of it.
-        // In that case, we will "hang" the stack visually from the top of the display (desirable).
-        let num_lines = min(
-            self.data.len() as u8,
-            (self.disp_dimensions.height / text_height // Integer division: always rounded down (desirable here)
-            ) - 1 // -1 because we want to leave space for the bottom line
-        );
-        trace!("Drawing {} lines on the display.", num_lines);
-
-        let text_vec = self.multipeek(num_lines).expect("We just checked the Vec is empty!");
-
-        /* We do an engineer's estimate that 32 bytes is enough for one line,
-        since we can't compute it dynamically from font size.
-        It's true that we don't wanna waste memory, but better safe than sorry.
-        At the smallest inbuilt font size, we can fit exactly 32 characters in a line,
-        so that's why we use 32 here.
-
-        If we had used i128-s (and didn't do fixed-point arithmetics with them),
-        we'd've needed at most 40 bytes (the lenght of i128::MIN in decimal representation),
-        but that'd long overflow the display, so who cares? :D */
-        let mut buf = String::<TEXT_BUFFER_SIZE>::new();
-
-        for i in (0..num_lines).rev() {
-            let i_usize = i as usize; // Convert to usize for indexing
-            buf.clear();
-
-            let text: &str = if self.debug {
-                // If we're in debug mode, we print the value of the element
-                core::write!(&mut buf, "{:?}", text_vec[i_usize])?;
-                buf.as_str()
-            } else {
-                // Otherwise, we just print the value as is
-                core::write!(&mut buf, "{}", text_vec[i_usize])?;
-                buf.as_str()
-            };
-
-            Text::with_baseline(
-                text,
-                (0, ((self.character_style.font.character_size.height as u8 - PIXELS_REMOVED) * i) as i32).into(),
-                self.character_style,
-                Baseline::Top
-            )
-            .draw(display_ref)?;
-        }
-
-        if flush { display_ref.flush()?; };
-        Ok(())
-    }
-
     /// Pushes a value onto the stack.
     /// If the stack is full, it returns an error with the value that could not be pushed.
     /// 
@@ -380,15 +275,16 @@ where
     /// 
     /// A const controls the maximum number of elements that can be popped at once.
     /// We need the Vec because we cannot return a slice that references data that we immediately remove from the stack.
-    pub fn multipop(&mut self, n: u8) -> Option<Vec<T, MAX_MULTIPOP_SIZE>> {
+    pub fn multipop(&mut self, n: u8) -> Option<impl DoubleEndedIterator<Item = T>> {
+    // See https://doc.rust-lang.org/stable/book/ch10-02-traits.html#returning-types-that-implement-traits for explanation of what we're returning here.
         if self.data.is_empty() {
             warn!("Tried to multipop from an empty stack, returning None.");
             return None;
         }
 
-        let iterator = self.data.drain(self.data.len().saturating_sub(n as usize)..);
-        // The turbofish isn't strictly necessary, it can infer it from the function signature, but for clarity we leave it here.
-        Some(iterator.collect::<Vec<T, MAX_MULTIPOP_SIZE>>())
+        // The caller may not need to collect it into a Vec, so we return the iterator directly.
+        // If the iterator is dropped before it's fully consumed, the data is still removed from the stack.
+        Some(self.data.drain(self.data.len().saturating_sub(n as usize)..))
     }
 
     /// Returns the last value pushed onto the stack without removing it.
@@ -450,7 +346,7 @@ where
 #[allow(dead_code)]
 impl<'a, T, DI, SIZE> CustomStack<'a, T, DI, SIZE>
 where
-    T: core::fmt::Debug + core::fmt::Display + Copy, // We need Copy here to be able to copy the slice elements (since we can't really own the slice)
+    T: Copy, // We need Copy here to be able to copy the slice elements (since we can't own the slice)
     DI: WriteOnlyDataCommand,
     SIZE: DisplaySize,
 {
@@ -464,6 +360,81 @@ where
             warn!("Tried to push a slice onto the stack that would overflow it, returning Err.");
             return Err(CustomError::CapacityError);
         };
+        Ok(())
+    }
+}
+
+impl<'a, T, DI, SIZE> CustomStack<'a, T, DI, SIZE>
+where
+    T: core::fmt::Display,
+    DI: WriteOnlyDataCommand,
+    SIZE: DisplaySize,
+{
+    /// Draws the stack on the display.
+    /// Can return DisplayError or FormatError.
+    pub fn draw(&self, flush: bool) -> Result<(), CustomError> {
+
+        // We're going to operate on the display for the entire method, so no need to wrap it in a scope
+        // It will get automatically dropped at the end of the method
+        let mut display_refmut = self.display_refcell.borrow_mut();
+        let display_ref = display_refmut.deref_mut(); // Get a mutable reference to the display itself, no RefMut
+
+        // A convenience variable
+        let text_height = (self.character_style.font.character_size.height - PIXELS_REMOVED as u32) as u8;
+        
+        // Clear the area where the stack will be drawn
+        Rectangle::new(
+            (0, 0).into(),
+            (self.disp_dimensions.width as u32, (text_height * ((self.disp_dimensions.height / text_height) - 1)) as u32).into() // We always clear the entire area, e.g. when popping elements
+        )
+        .into_styled(self.primitives_style)
+        .draw(display_ref)?;
+
+        if self.data.is_empty() {
+            // If the stack is empty, we don't need to draw anything so we expediently return
+            if flush { display_ref.flush()?; };
+            return Ok(());
+        }
+
+        // If there is less data than the display can show, we just draw all of it.
+        // In that case, we will "hang" the stack visually from the top of the display (desirable).
+        let num_lines = min(
+            self.data.len() as u8,
+            (self.disp_dimensions.height / text_height // Integer division: always rounded down (desirable here)
+            ) - 1 // -1 because we want to leave space for the bottom line
+        );
+        trace!("Drawing {} lines on the display.", num_lines);
+
+        let text_vec = self.multipeek(num_lines).expect("We just checked the Vec is empty!");
+
+        /* We do an engineer's estimate that 32 bytes is enough for one line,
+        since we can't compute it dynamically from font size.
+        It's true that we don't wanna waste memory, but better safe than sorry.
+        At the smallest inbuilt font size, we can fit exactly 32 characters in a line,
+        so that's why we use 32 here.
+
+        If we had used i128-s (and didn't do fixed-point arithmetics with them),
+        we'd've needed at most 40 bytes (the lenght of i128::MIN in decimal representation),
+        but that'd long overflow the display, so who cares? :D */
+        let mut buf = String::<TEXT_BUFFER_SIZE>::new();
+
+        for i in (0..num_lines).rev() {
+            let i_usize = i as usize; // Convert to usize for indexing
+            buf.clear();
+
+            core::write!(&mut buf, "{}", text_vec[i_usize])?;
+            let text = buf.as_str();
+
+            Text::with_baseline(
+                text,
+                (0, ((self.character_style.font.character_size.height as u8 - PIXELS_REMOVED) * i) as i32).into(),
+                self.character_style,
+                Baseline::Top
+            )
+            .draw(display_ref)?;
+        }
+
+        if flush { display_ref.flush()?; };
         Ok(())
     }
 }

@@ -54,6 +54,8 @@ so with this constant we basically cut off the top `n` pixels. */
 const PIXELS_REMOVED: u8 = 2;
 /// Size of String-s used for buffering text during writes, and for the textbox
 const TEXT_BUFFER_SIZE: usize = 32;
+/// Message to fill the textbox with when building a debug textbox
+const DEBUG_TEXTBOX_MESSAGE: &str = "DEBUG TEXTBOX";
 /** Number of pixels to offset the textbox from the bottom of the display by
 
 This constant shall be determined by the programmer,
@@ -70,6 +72,9 @@ const TEXTBOX_CURSOR: bool = true;
 const fn _check_consts() {
     if TEXTBOX_CURSOR && TEXTBOX_OFFSET < 1 {
         core::panic!("TEXTBOX_CURSOR can only be true if TEXTBOX_OFFSET is larger than 1");
+    }
+    if TEXT_BUFFER_SIZE < DEBUG_TEXTBOX_MESSAGE.len() {
+        core::panic!("TEXT_BUFFER_SIZE is too small to hold DEBUG_TEXTBOX_MESSAGE");
     }
 }
 const _: () = _check_consts();
@@ -165,8 +170,6 @@ where
             character_style: self.character_style,
             primitives_style: self.primitives_style,
             primitives_alternate_style: self.primitives_alternate_style,
-
-            debug: false,
         }
     }
 
@@ -174,7 +177,8 @@ where
         warn!("Building a debug textbox, filling it with default values.");
 
         self.text.clear();
-        self.text.push_str("DEBUG TEXTBOX").expect("TEXT_BUFFER_SIZE is too small for the debug message!");
+        self.text.push_str(DEBUG_TEXTBOX_MESSAGE)
+            .expect("TEXT_BUFFER_SIZE is too small for DEBUG_TEXTBOX_MESSAGE, this should be impossible!"); // We checked at compile time
 
         CustomTextbox {
             // Fill the text with a debug message
@@ -186,8 +190,6 @@ where
             character_style: self.character_style,
             primitives_style: self.primitives_style,
             primitives_alternate_style: self.primitives_alternate_style,
-
-            debug: true,
         }
     }
 
@@ -228,8 +230,6 @@ where
     character_style: MonoTextStyle<'a, BinaryColor>,
     primitives_style: PrimitiveStyle<BinaryColor>,
     primitives_alternate_style: PrimitiveStyle<BinaryColor>,
-
-    debug: bool,
 }
 
 /// Can return DisplayError only
@@ -254,13 +254,7 @@ where
                 (self.disp_dimensions.height - textbox_height) as i32
             ).into() // Top left corner
         )
-        .into_styled(
-            if self.debug {
-                self.primitives_style // If we're in debug mode, we use the normal style to draw white boundaries
-            } else {
-                self.primitives_alternate_style // Otherwise, we use the alternate style to draw a black rectangle - clearing the area
-            }
-        )
+        .into_styled(self.primitives_alternate_style)
         .draw(display_ref)?;
 
         Text::with_baseline(

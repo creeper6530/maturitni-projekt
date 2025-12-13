@@ -11,6 +11,8 @@
 // 1 MHz, the maximum speed for I²C on the RP2040 (so-called Fast Mode Plus; datasheet 4.3.3), and the SSD1306 can handle it well
 const I2C_FREQ: hal::fugit::HertzU32 = hal::fugit::HertzU32::kHz(1000);
 
+const DECFIX_EXPONENT: i8 = -9; // We use 9 decimal places, which is enough for most calculations
+
 use defmt::*;
 use defmt_rtt as _; // We start RTT in no-blocking mode, `probe-run` will switch to blocking mode. That's why we shall not disconnect the probe while the program is running.
 use panic_probe as _;
@@ -49,8 +51,6 @@ use custom_error::{
 };
 mod command_mode;
 use command_mode::handle_commands;
-
-const DECFIX_EXPONENT: i8 = -9; // We use 9 decimal places, which is enough for most calculations
 
 #[unsafe(link_section = ".boot2")]
 #[used]
@@ -134,7 +134,7 @@ fn main() -> ! {
 
     let disp_refcell = RefCell::new(disp);
     // Range of i32 is `-2147483648..=2147483647`
-    let mut stack: CustomStack<'_, DecimalFixed, _, _> = CustomStackBuilder::<'_, DecimalFixed, _, _>::new(&disp_refcell) // We're using the turbofish syntax here
+    let mut stack = CustomStackBuilder::<'_, DecimalFixed, _, _>::new(&disp_refcell) // We're using the turbofish syntax here
         .build();
     let mut textbox = CustomTextboxBuilder::new(&disp_refcell)
         .build();

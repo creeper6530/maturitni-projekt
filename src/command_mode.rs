@@ -211,7 +211,8 @@ Must've contained multiple spaces.");
                 return Err(CustomError::BadInput);
             }
 
-            stack.multipop(count).ok_or(CustomError::BadInput)?;
+            let iterator = stack.multipop(count).ok_or(CustomError::BadInput)?;
+            drop(iterator); // We don't need the values, just drop them explicitly
             stack.draw(true)?;
         },
 
