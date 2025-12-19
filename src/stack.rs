@@ -43,6 +43,7 @@ use defmt_rtt as _;
 use panic_probe as _;
 
 use crate::custom_error::CustomError; // Because we already have the `mod` in `main.rs`
+use CustomError as CE; // Shorter alias
 
 // ------------------------------------------------------------------------------------------------------------------------------------------------
 
@@ -133,11 +134,10 @@ where
             // Standard white text on (by default) transparent background
             character_style: MonoTextStyle::new(&ISO_FONT_6X12, BinaryColor::On),
 
-            // Standard white stroke with 1px width and transparent fill
+            // Standard black stroke and fill (i.e. all black, effectively erasing anything drawn below it)
             primitives_style: PrimitiveStyleBuilder::new()
-                .stroke_width(1)
-                .stroke_color(BinaryColor::On)
-                //.reset_fill_color() // Reset the fill color to transparent (unnecessary, but for clarity)
+                .stroke_color(BinaryColor::Off)
+                .fill_color(BinaryColor::Off)
                 .build(),
         }
     }
@@ -231,7 +231,7 @@ where
     pub fn push(&mut self, value: T) -> Result<(), CustomError> {
         if self.data.push(value).is_err() {
             warn!("Tried to push a value onto a full stack, returning Err.");
-            return Err(CustomError::CapacityError);
+            return Err(CE::CapacityError);
         }
         Ok(())
     }
@@ -244,13 +244,13 @@ where
     pub fn push_vec(&mut self, value: Vec<T, MAX_VEC_PUSH_SIZE>) -> Result<(), CustomError> {
         if self.data.len() + value.len() > MAX_STACK_SIZE {
             warn!("Tried to push a Vec onto the stack that would overflow it, returning Err.");
-            return Err(CustomError::CapacityError);
+            return Err(CE::CapacityError);
         }
         
         for v in value.into_iter() {
             if self.data.push(v).is_err() {
                 error!("We already checked for capacity, so this should never happen!");
-                return Err(CustomError::Impossible);
+                return Err(CE::Impossible);
             }
         }
         Ok(())
@@ -358,7 +358,7 @@ where
     pub fn push_slice(&mut self, slice: &[T]) -> Result<(), CustomError> {
         if self.data.extend_from_slice(slice).is_err() {
             warn!("Tried to push a slice onto the stack that would overflow it, returning Err.");
-            return Err(CustomError::CapacityError);
+            return Err(CE::CapacityError);
         };
         Ok(())
     }

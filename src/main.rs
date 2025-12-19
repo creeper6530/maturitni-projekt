@@ -46,7 +46,8 @@ mod decfix;
 use decfix::DecimalFixed;
 mod custom_error;
 use custom_error::{
-    CustomError::{self, *},
+    CustomError, // Never use `CustomError::*`, it could cause unobvious bugs!
+    CustomError as CE,
     IntErrorKindClone,
 };
 mod command_mode;
@@ -181,9 +182,9 @@ fn main() -> ! {
 
                 if let Err(e) = parse_textbox(&mut textbox, &mut stack, true) {
                     match e {
-                        CapacityError |
-                        MathOverflow |
-                        ParseIntError(IntErrorKindClone::PosOverflow | IntErrorKindClone::NegOverflow) => {
+                        CE::CapacityError |
+                        CE::MathOverflow |
+                        CE::ParseIntError(IntErrorKindClone::PosOverflow | IntErrorKindClone::NegOverflow) => {
                             error!("Error parsing textbox: {:?}", e);
                             stack.draw(false)
                                 .inspect_err(|e| defmt::panic!("Error with display: {:?}", *e))
@@ -194,7 +195,7 @@ fn main() -> ! {
 
                             disp_error(&disp_refcell);
                         },
-                        DisplayError(e) => defmt::panic!("Error with display: {:?}", e),
+                        CE::DisplayError(e) => defmt::panic!("Error with display: {:?}", e),
                         _ => disp_grave_error(&disp_refcell, Some(&mut delay))
                     }
                 } // Else it's already drawn
@@ -297,9 +298,9 @@ fn main() -> ! {
                     && let Err(e) = parse_textbox(&mut textbox, &mut stack, false)
                 {
                     match e {
-                    CapacityError |
-                    MathOverflow |
-                    ParseIntError(IntErrorKindClone::PosOverflow | IntErrorKindClone::NegOverflow) => {
+                    CE::CapacityError |
+                    CE::MathOverflow |
+                    CE::ParseIntError(IntErrorKindClone::PosOverflow | IntErrorKindClone::NegOverflow) => {
                         error!("Error parsing textbox: {:?}", e);
                         stack.draw(false)
                             .inspect_err(|e| defmt::panic!("Error with display: {:?}", *e))
@@ -310,7 +311,7 @@ fn main() -> ! {
 
                         disp_error(&disp_refcell);
                     },
-                    DisplayError(e) => defmt::panic!("Error with display: {:?}", e),
+                    CE::DisplayError(e) => defmt::panic!("Error with display: {:?}", e),
                     _ => disp_grave_error(&disp_refcell, Some(&mut delay))
                     };
                     continue 'main;
@@ -362,7 +363,7 @@ fn main() -> ! {
                             '/' => {
                                 match a.divide(b) {
                                     Ok(c) => c,
-                                    Err(BadInput) => {
+                                    Err(CE::BadInput) => {
                                         error!("Division by zero");
                                         stack.draw(false)
                                             .inspect_err(|e| defmt::panic!("Error with display: {:?}", *e))
@@ -457,9 +458,9 @@ fn main() -> ! {
                             Ok(()) => {},
                             Err(e) => {
                                 match e {
-                                    BadInput |
-                                    ParseIntError(_) |
-                                    CapacityError => {
+                                    CE::BadInput |
+                                    CE::ParseIntError(_) |
+                                    CE::CapacityError => {
                                         error!("Bad input in command mode."); // Technically capacity error is a bad input too
                                         {
                                             let mut disp = disp_refcell.borrow_mut();
@@ -477,12 +478,12 @@ fn main() -> ! {
 
                                         disp_error(&disp_refcell);
                                     },
-                                    Cancelled => {
+                                    CE::Cancelled => {
                                         textbox.draw(true)
                                             .inspect_err(|e| defmt::panic!("Error with display: {:?}", *e))
                                             .unwrap();
                                     },
-                                    DisplayError(e) => defmt::panic!("Error with display: {:?}", e),
+                                    CE::DisplayError(e) => defmt::panic!("Error with display: {:?}", e),
                                     other => {
                                         error!("An irrecoverable or otherwise unhandled error: {:?}", other);
                                         {
@@ -592,16 +593,15 @@ where
     SIZE: DisplaySize,
 {
     let txbx_data = textbox.get_text_str();
-    if txbx_data.is_empty() { return Err(BadInput); };
+    if txbx_data.is_empty() { return Err(CE::BadInput); };
     
     let num = DecimalFixed::parse_static_exp(txbx_data, DECFIX_EXPONENT)?;
-
     stack.push(num)?;
 
+    // Moved down so that the compiler won't scream at me about borrowing issues
+    textbox.clear();
     // We save ourselves a double flush call when drawing both, because I²C ops are slow and blocking
     stack.draw(false)?;
     textbox.draw(flush)?;
-
-    textbox.clear();
     Ok(())
 }

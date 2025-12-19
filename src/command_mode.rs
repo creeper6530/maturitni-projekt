@@ -11,6 +11,7 @@ use core::ops::DerefMut;
 use crate::textbox::CustomTextbox;
 use crate::stack::CustomStack;
 use crate::custom_error::CustomError;
+use CustomError as CE; // Shorter alias
 
 /// # List of commands:
 /// 
@@ -74,7 +75,7 @@ where
                     let mut disp = disp_refcell.borrow_mut();
                     disp.set_invert(false)?;
                 }
-                return Err(CustomError::Cancelled);
+                return Err(CE::Cancelled);
             },
             '\r' | '\n' => break, // Enter key
             '\x08' | '\x7F' => { // Backspace
@@ -87,7 +88,7 @@ where
                 if textbox.backspace(1).is_err() {
                     error!("Failed to backspace textbox in command mode");
                     error!("This should normally be impossible, we already checked it's not empty");
-                    return Err(CustomError::Impossible);
+                    return Err(CE::Impossible);
                 };
                 textbox.draw(true)?;
             },
@@ -153,7 +154,7 @@ where
             if split.0 != "brt" && split.0 != "brightness" {
                 error!("We already checked the command starts with 'brt ' or 'brightness ', why is the first split part not one of those?.
 Must've contained multiple spaces.");
-                return Err(CustomError::BadInput);
+                return Err(CE::BadInput);
             }
 
             let brightness_num = split.1.parse::<u8>()?;
@@ -165,7 +166,7 @@ Must've contained multiple spaces.");
                 5 => Brightness::BRIGHTEST,
                 _ => {
                     warn!("Brightness value out of range (1-5): {}", brightness_num);
-                    return Err(CustomError::BadInput);
+                    return Err(CE::BadInput);
                 }
             };
             {
@@ -192,7 +193,7 @@ Must've contained multiple spaces.");
                 stack.draw(true)?;
             } else {
                 warn!("Failed to duplicate top element of stack: stack is empty");
-                return Err(CustomError::BadInput);
+                return Err(CE::BadInput);
             }
         },
 
@@ -203,23 +204,23 @@ Must've contained multiple spaces.");
             if split.0 != "drop" {
                 error!("We already checked the command starts with 'drop ', why is the first split part not 'drop'?.
 Must've contained multiple spaces.");
-                return Err(CustomError::BadInput);
+                return Err(CE::BadInput);
             }
 
             let count = split.1.parse::<u8>()?;
             if (count == 0) || (count as usize > stack.len()) {
-                return Err(CustomError::BadInput);
+                return Err(CE::BadInput);
             }
 
-            let iterator = stack.multipop(count).ok_or(CustomError::BadInput)?;
-            drop(iterator); // We don't need the values, just drop them explicitly
+            let actual_count = stack.multipop(count).ok_or(CE::BadInput)?.count(); // We don't need the values, but count() consumes the iterator
+            defmt::debug_assert_eq!(actual_count as u8, count); // Could be omitted, but if we already have the count, might as well check
             stack.draw(true)?;
         },
 
         "drop" => {
             if stack.pop().is_none() {
                 warn!("Failed to drop top element of stack: stack is empty.");
-                return Err(CustomError::BadInput);
+                return Err(CE::BadInput);
             };
             stack.draw(true)?;
         },
@@ -237,7 +238,7 @@ Must've contained multiple spaces.");
                     if stack.push(b).is_err() | stack.push(a).is_err() {
                         error!("Failed to push number onto stack.");
                         error!("This should be impossible, the stack should have enough space since we already popped from it.");
-                        return Err(CustomError::Impossible);
+                        return Err(CE::Impossible);
                     };
                     stack.draw(true)?;
                 },
@@ -246,17 +247,17 @@ Must've contained multiple spaces.");
                     if let Err(e) = stack.push(a) {
                         error!("Failed to push number onto stack: {:?}", e);
                         error!("This should be impossible, the stack should have enough space since we already popped from it.");
-                        return Err(CustomError::Impossible);
+                        return Err(CE::Impossible);
                     }
-                    return Err(CustomError::BadInput);
+                    return Err(CE::BadInput);
                 },
                 (None, None) => {
                     warn!("Failed to swap top two elements of stack: stack is empty.");
-                    return Err(CustomError::BadInput);
+                    return Err(CE::BadInput);
                 },
                 (Some(_), None) => {
                     error!("This should be impossible. How can we first fail but then succeed?");
-                    return Err(CustomError::Impossible);
+                    return Err(CE::Impossible);
                 },
             };
         },
@@ -268,12 +269,12 @@ Must've contained multiple spaces.");
                 let mut disp = disp_refcell.borrow_mut();
                 disp.set_invert(false)?;
             }
-            return Err(CustomError::Cancelled);
+            return Err(CE::Cancelled);
         },
         
         _ => {
             warn!("Unknown command received over UART: {:?}", command);
-            return Err(CustomError::BadInput);
+            return Err(CE::BadInput);
         }
     }
 

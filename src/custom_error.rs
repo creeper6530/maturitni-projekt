@@ -4,7 +4,7 @@ use display_interface::DisplayError;
 use heapless::CapacityError;
 use rp2040_hal::uart::ReadErrorType;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, defmt::Format)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, defmt::Format, Default)]
 #[non_exhaustive] // So that we can add more error types later without breaking compatibility
 pub enum CustomError {
     MathOverflow,
@@ -20,11 +20,11 @@ pub enum CustomError {
     Unimplemented,
     Impossible,
     Cancelled,
-    Other
+    #[default] Other // We have to mark a default variant by this attribute for the Default derive
 }
 
 // Because IntErrorKind doesn't implement defmt::Format.
-#[derive(Debug, Clone, PartialEq, Eq, Copy, Hash, defmt::Format)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, defmt::Format)]
 pub enum IntErrorKindClone {
     Empty,
     InvalidDigit,
@@ -35,7 +35,7 @@ pub enum IntErrorKindClone {
 
 // Because DisplayError doesn't implement PartialEq nor Eq, or at least until my PR gets merged. (It should implement defmt::Format though.)
 // Said PR: https://github.com/therealprof/display-interface/pull/55
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, defmt::Format)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, defmt::Format)]
 pub enum DisplayErrorClone {
     InvalidFormatError,
     BusWriteError,
@@ -47,7 +47,7 @@ pub enum DisplayErrorClone {
 }
 
 // Because ReadErrorType doesn't implement Clone, Copy, PartialEq nor Eq. (It should implement defmt::Format though.)
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, defmt::Format)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, defmt::Format)]
 pub enum ReadErrorTypeClone {
     Overrun,
     Break,

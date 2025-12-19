@@ -43,6 +43,7 @@ use defmt_rtt as _;
 use panic_probe as _;
 
 use crate::custom_error::CustomError; // Because we already have the `mod` in `main.rs`
+use CustomError as CE; // Shorter alias
 
 // ------------------------------------------------------------------------------------------------------------------------------------------------
 
@@ -290,7 +291,7 @@ where
         // `heapless` v0.9 changed the error type of `push` and `push_str` from `()` to `CapacityError`
         if self.text.push_str(string).is_err() {
             warn!("Tried to append a string that is too long for the textbox, returning Err.");
-            return Err(CustomError::CapacityError);
+            return Err(CE::CapacityError);
         };
         Ok(())
     }
@@ -300,7 +301,7 @@ where
         self.text.push(c)
             .map_err(|_| {
                 warn!("Tried to append a character that is too long for the textbox, returning Err.");
-                CustomError::CapacityError
+                CE::CapacityError
             })
     }
 
@@ -316,7 +317,7 @@ where
     pub fn backspace(&mut self, count: usize) -> Result<(), CustomError> {
         if self.text.len() < count {
             warn!("Tried to backspace more than is present, returning an Err.");
-            return Err(CustomError::BadInput);
+            return Err(CE::BadInput);
         }
 
         for _ in 0..count {
@@ -352,15 +353,15 @@ where
     pub fn insert_at(&mut self, index: usize, c: char) -> Result<(), CustomError> {
         if index > self.text.len() {
             warn!("Tried to insert a character at an out-of-bounds index.");
-            return Err(CustomError::BadInput);
+            return Err(CE::BadInput);
         }
         if !self.text.is_char_boundary(index) {
             warn!("Tried to insert a character at a non-char-boundary index.");
-            return Err(CustomError::BadInput);
+            return Err(CE::BadInput);
         }
         if c.len_utf8() + self.text.len() > TEXT_BUFFER_SIZE {
             warn!("Tried to insert a character that is too long for the textbox, returning Err.");
-            return Err(CustomError::CapacityError);
+            return Err(CE::CapacityError);
         }
 
         self.text.insert(index, c)?;
@@ -369,15 +370,15 @@ where
     pub fn insert_str_at(&mut self, index: usize, string: &str) -> Result<(), CustomError> {
         if index > self.text.len() {
             warn!("Tried to insert a string at an out-of-bounds index.");
-            return Err(CustomError::BadInput);
+            return Err(CE::BadInput);
         }
         if !self.text.is_char_boundary(index) {
             warn!("Tried to insert a string at a non-char-boundary index.");
-            return Err(CustomError::BadInput);
+            return Err(CE::BadInput);
         }
         if string.len() + self.text.len() > TEXT_BUFFER_SIZE {
             warn!("Tried to insert a string that is too long for the textbox, returning Err.");
-            return Err(CustomError::CapacityError);
+            return Err(CE::CapacityError);
         }
 
         self.text.insert_str(index, string)?;
@@ -387,11 +388,11 @@ where
     pub fn remove_at(&mut self, index: usize) -> Result<char, CustomError> {
         if index >= self.text.len() {
             warn!("Tried to remove a character at an out-of-bounds index.");
-            return Err(CustomError::BadInput);
+            return Err(CE::BadInput);
         }
         if !self.text.is_char_boundary(index) {
             warn!("Tried to remove a character at a non-char-boundary index.");
-            return Err(CustomError::BadInput);
+            return Err(CE::BadInput);
         }
 
         Ok(self.text.remove(index))
