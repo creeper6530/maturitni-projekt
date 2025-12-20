@@ -52,24 +52,11 @@ use CustomError as CE; // Shorter alias
 // Compile time constants
 /// Maximum size of the stack
 const MAX_STACK_SIZE: usize = 256;
-/// Maximum number of elements to pop at once
-const MAX_MULTIPOP_SIZE: usize = 16;
-/// Maximum number of elements to push at once
-const MAX_VEC_PUSH_SIZE: usize = 16;
 /** The fonts we use usually have unused pixels at the top that'd waste space,
 so with this constant we basically cut off the top `n` pixels. */
 const PIXELS_REMOVED: u8 = 2;
 /// Size of String-s used for buffering text during writes, and for the textbox
 const TEXT_BUFFER_SIZE: usize = 32;
-
-// Evaluated at compile time to ensure that the constants are valid
-const fn _check_consts() {
-    if MAX_MULTIPOP_SIZE > MAX_STACK_SIZE {
-        core::panic!("MAX_MULTIPOP_SIZE must not be greater than MAX_STACK_SIZE");
-    }
-}
-const _: () = _check_consts();
-
 // ------------------------------------------------------------------------------------------------------------------------------------------------
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -143,6 +130,8 @@ where
     }
 
     pub fn build(self) -> CustomStack<'a, T, DI, SIZE> {
+        defmt::assert_eq!(self.data.capacity(), MAX_STACK_SIZE); // Just to be sure
+
         CustomStack {
             data: self.data,
 
@@ -173,19 +162,16 @@ where
 #[allow(dead_code)]
 impl<'a, T, DI, SIZE> CustomStackBuilder<'a, T, DI, SIZE>
 where
-    T: Default, // We add Default here so that we can use `T::default()`
+    T: Default + Clone, // It is exceptionally rare that a type is Default but not Clone, so this is acceptable.
     DI: WriteOnlyDataCommand,
     SIZE: DisplaySize,
 {
     pub fn build_debug(mut self) -> CustomStack<'a, T, DI, SIZE> {
         warn!("Building a debug stack, filling it with default values.");
 
-        // Fill the stack with default values
-        for _ in 0..MAX_STACK_SIZE { // Do it MAX_STACK_SIZE times
-            self.data.push(T::default())
-                // This is like `.expect()`, but without a Debug bound on T
-                .unwrap_or_else(|_| defmt::panic!("We're pushing exactly MAX_STACK_SIZE elements, so this should never fail!"));
-        }
+        self.data.resize_default(MAX_STACK_SIZE)
+            // This Result does not have T as its Err type, so no Debug bound arises here
+            .expect("We're resizing to MAX_STACK_SIZE, so this should never fail!");
 
         CustomStack {
             data: self.data,
@@ -236,23 +222,45 @@ where
         Ok(())
     }
 
-    /// Pushes multiple values onto the stack from a Vec.
-    /// If the stack does not have enough space for all values, it returns an error.
+    /// Pushes multiple values onto the stack from any iterator.
+    /// If the stack does not have enough space for all values, it panics.
     /// 
-    /// We use a Vec because it has a known length at runtime and ownership of the data.
-    /// For slices that are composed of Clone types, use `push_slice()`.
-    pub fn push_vec(&mut self, value: Vec<T, MAX_VEC_PUSH_SIZE>) -> Result<(), CustomError> {
-        if self.data.len() + value.len() > MAX_STACK_SIZE {
-            warn!("Tried to push a Vec onto the stack that would overflow it, returning Err.");
+    /// For slices that are composed of Clone types, prefer `push_slice()`.
+    /// For exact-size iterators, prefer `push_exact_iterator()` that can't panic.
+    /// 
+    /// If `check_hint` is true, and the iterator has an upper size hint,
+    /// and the hint indicates that pushing all elements would overflow the stack, 
+    /// the method checks if the upper size hint would overflow the stack
+    /// and returns an error instead of possibly panicking.
+    /// 
+    /// E.g. for a Vec, setting `check_hint` to true is recommended, because the size hint is exact.
+    pub fn push_iterator(&mut self, iter: impl Iterator<Item = T>, check_hint: bool) -> Result<(), CustomError> {
+        // Short-circuiting is desirable here
+        if check_hint // If the caller wants us to check the size hint
+            && let Some(hint) = iter.size_hint().1 // If the iterator has an upper bound
+            && self.data.len() + hint > MAX_STACK_SIZE // If it would actually overflow the stack
+        {
             return Err(CE::CapacityError);
         }
+
+        self.data.extend(iter);
+        Ok(())
+    }
+
+    /// Pushes multiple values onto the stack from an exact-size iterator.
+    /// If the stack does not have enough space for all values, it returns an error.
+    /// 
+    /// For slices that are composed of Clone types, prefer `push_slice()`.
+    /// For general iterators, use `push_iterator()` if the possibility of panic does not scare you.
+    pub fn push_exact_iterator(&mut self, iter: impl ExactSizeIterator<Item = T>) -> Result<(), CustomError> {
+        let iter = iter.into_iter();
         
-        for v in value.into_iter() {
-            if self.data.push(v).is_err() {
-                error!("We already checked for capacity, so this should never happen!");
-                return Err(CE::Impossible);
-            }
+        // Thanks to ExactSizeIterator, we can get the exact size of the iterator beforehand and check for overflow
+        if self.data.len() + iter.len() > MAX_STACK_SIZE {
+            return Err(CE::CapacityError);
         }
+
+        self.data.extend(iter);
         Ok(())
     }
 
@@ -267,14 +275,14 @@ where
         popped
     }
 
-    /// Pops `n` elements from the stack and returns them as a slice.
-    /// If `n` is greater than the stack size, it returns the entire stack as a slice.
-    /// If the stack is empty, it returns `None`.
+    /// Returns a double-ended iterator that yields up to `n` popped elements from the stack.
+    /// Each `.next()` call on the iterator pops one, but the rest are still popped even if the iterator is dropped before being fully consumed.
     /// 
-    /// The topmost element is the last element in the returned vector.
+    /// If the stack is empty, it returns `None`. If you try to pop more elements than there are, it pops all.
     /// 
-    /// A const controls the maximum number of elements that can be popped at once.
-    /// We need the Vec because we cannot return a slice that references data that we immediately remove from the stack.
+    /// Note that the returned iterator still keeps a mutable borrow on the stack until it is fully consumed or dropped.
+    /// 
+    /// The last item yielded by the iterator is the topmost element of the stack.
     pub fn multipop(&mut self, n: u8) -> Option<impl DoubleEndedIterator<Item = T>> {
     // See https://doc.rust-lang.org/stable/book/ch10-02-traits.html#returning-types-that-implement-traits for explanation of what we're returning here.
         if self.data.is_empty() {
@@ -284,6 +292,7 @@ where
 
         // The caller may not need to collect it into a Vec, so we return the iterator directly.
         // If the iterator is dropped before it's fully consumed, the data is still removed from the stack.
+        // Thanks to saturating_sub, we don't have to check if n > len here.
         Some(self.data.drain(self.data.len().saturating_sub(n as usize)..))
     }
 
@@ -315,14 +324,9 @@ where
             warn!("Tried to peek into an empty stack, returning None.");
             return None;
         }
-        
-        if n > self.data.len() {
-            warn!("Tried to peek further than the stack size, returning the entire stack.");
-            return Some(self.data.as_slice());
-        }
 
         Some(&self.data[self.data.len().saturating_sub(n)..]) // Get the last `n` elements as a slice.
-        // The `saturating_sub` is just for safety, does the same as the earlier check, returning the entire stack if n > len, since it's usize.
+        // The `saturating_sub` ensures that if n > len, we get 0 as the start index, effectively returning the entire stack.
     }
 
     /// Clears the entire stack
@@ -346,15 +350,15 @@ where
 #[allow(dead_code)]
 impl<'a, T, DI, SIZE> CustomStack<'a, T, DI, SIZE>
 where
-    T: Copy, // We need Copy here to be able to copy the slice elements (since we can't own the slice)
+    T: Clone, // We need Clone here to be able to clone the slice elements (since we can't own the slice)
     DI: WriteOnlyDataCommand,
     SIZE: DisplaySize,
 {
     /// Pushes multiple values onto the stack from a slice.
     /// If the stack does not have enough space for all values, it returns an error.
     ///
-    /// We need the `Copy` bound on `T` to be able to copy the elements from the slice.
-    /// To push multiple values from a Vec that owns the values, use `push_vec()`.
+    /// We need the `Clone` bound on `T` to be able to clone the elements from the slice.
+    /// To push multiple values from an IntoIterator collection that owns the values, use `push_iterator()`.
     pub fn push_slice(&mut self, slice: &[T]) -> Result<(), CustomError> {
         if self.data.extend_from_slice(slice).is_err() {
             warn!("Tried to push a slice onto the stack that would overflow it, returning Err.");

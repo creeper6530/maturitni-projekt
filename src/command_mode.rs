@@ -40,7 +40,8 @@ pub fn handle_commands<'a, DI, SIZE, T, D, P> (
 where
     DI: WriteOnlyDataCommand,
     SIZE: DisplaySize,
-    T: Copy + core::fmt::Debug + core::fmt::Display,
+    T: core::fmt::Display, // For the draw() method of the stack
+    T: Clone, // Needed for duplicating stack elements
 
     D: hal::uart::UartDevice,
     P: hal::uart::ValidUartPinout<D>
@@ -104,10 +105,7 @@ where
     }
 
     // Now we work, knowing we already received the Enter key
-    let command = textbox.get_text();
-    let command = command.as_str(); // Temporary value dropped while still borrowed... fuck. Have to shadow.
-    textbox.clear();
-    textbox.draw(true)?;
+    let command = textbox.get_text_str();
     // We don't need to pop the last char, since we didn't add it to the textbox
 
     match command {
@@ -143,9 +141,10 @@ where
 
         "r" | "f5" | "refresh" | "reload" | "redraw" => {
             info!("Doing a forced redraw of stack. (command 'redraw')");
-            stack.draw(true)?;
+            stack.draw(true)?; // Just to be sure, we force a flush
         },
 
+        // Pattern matching at its finest!
         brt_cmd if brt_cmd.starts_with("brt ")
             || brt_cmd.starts_with("brightness ") => {
             let split = brt_cmd.rsplit_once(" ")
@@ -181,16 +180,17 @@ Must've contained multiple spaces.");
             } else {
                 info!("Clearing stack by user request (command 'clear')");
                 stack.clear();
-                stack.draw(true)?;
+                stack.draw(false)?; // No need to force flush here, we flush after the match block anyway
             }
         },
 
         "d" | "dup" | "duplicate" => {
             if let Some(val) = stack.pop() {
-                for _ in 0..2 { // Two times
-                    stack.push(val)?;
-                }
-                stack.draw(true)?;
+                // Hopefully more efficient/optimizable than pushing a temporary slice or pushing two times separately
+                stack.push_exact_iterator(
+                    core::iter::repeat_n(val, 2)
+                )?;
+                stack.draw(false)?;
             } else {
                 warn!("Failed to duplicate top element of stack: stack is empty");
                 return Err(CE::BadInput);
@@ -198,6 +198,8 @@ Must've contained multiple spaces.");
         },
 
         drop_cmd if drop_cmd.starts_with("drop ") => {
+            // By reverse-splitting instead of splitting, we ensure that in case of multiple spaces,
+            // the *first* part would be malformed if there were multiple spaces.
             let split = drop_cmd.rsplit_once(" ")
                 .expect("Should contain a space; we checked in the match guard!");
 
@@ -208,13 +210,20 @@ Must've contained multiple spaces.");
             }
 
             let count = split.1.parse::<u8>()?;
+            // This checks if the stack isn't empty as well in sort of a roundabout way
+            // (non-zero count will always be greater than stack size if stack is empty)
             if (count == 0) || (count as usize > stack.len()) {
                 return Err(CE::BadInput);
             }
 
-            let actual_count = stack.multipop(count).ok_or(CE::BadInput)?.count(); // We don't need the values, but count() consumes the iterator
-            defmt::debug_assert_eq!(actual_count as u8, count); // Could be omitted, but if we already have the count, might as well check
-            stack.draw(true)?;
+            let iter = stack.multipop(count).expect("We already checked if the stack is not empty!");
+
+            #[cfg(debug_assertions)] // We need this, can't rely on macro debug_assert_eq!()
+            defmt::assert_eq!(iter.count(), count as usize);
+            #[cfg(not(debug_assertions))] // With this, compiler is happy that iterator gets consumed before `draw()` no matter what
+            drop(iter); // Automatically pops remaining unconsumed elements without bothering to count them
+
+            stack.draw(false)?;
         },
 
         "drop" => {
@@ -222,7 +231,7 @@ Must've contained multiple spaces.");
                 warn!("Failed to drop top element of stack: stack is empty.");
                 return Err(CE::BadInput);
             };
-            stack.draw(true)?;
+            stack.draw(false)?;
         },
 
         "s" | "swap" => {
@@ -240,7 +249,7 @@ Must've contained multiple spaces.");
                         error!("This should be impossible, the stack should have enough space since we already popped from it.");
                         return Err(CE::Impossible);
                     };
-                    stack.draw(true)?;
+                    stack.draw(false)?;
                 },
                 (None, Some(a)) => {
                     warn!("Failed to swap top two elements of stack: stack has only one element.");
@@ -282,6 +291,9 @@ Must've contained multiple spaces.");
         let mut disp = disp_refcell.borrow_mut();
         disp.set_invert(false)?;
     }
+    
+    // Have to clear textbox after handling command because get_text_str() keeps a borrow on it
+    textbox.clear();
     textbox.draw(true)?;
     Ok(())
 }

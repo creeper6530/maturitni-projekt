@@ -320,9 +320,18 @@ where
             return Err(CE::BadInput);
         }
 
-        for _ in 0..count {
-            self.text.pop().expect("We already checked, this shouldn't be possible!");
+        if self.text.is_ascii() {
+            // More efficient, but in current implementation requires ASCII-only text
+            // In my unscientific benchmarks, this is ~85 µs faster for 1 character on dev build
+            // Grace Hopper would be proud, that's a save of about 85 000 nanoseconds! :D
+            self.text.truncate(self.text.len() - count);
+        } else {
+            // Fallback, could be slower
+            for _ in 0..count {
+                self.text.pop().expect("We already checked, this shouldn't be possible!");
+            }
         }
+        
         Ok(())
     }
 
