@@ -73,7 +73,7 @@ const fn _check_consts() {
         core::panic!("TEXT_BUFFER_SIZE is too small to hold DEBUG_TEXTBOX_MESSAGE");
     }
 }
-const _: () = _check_consts();
+const _: () = _check_consts(); // Trigger the const fn to check the constants at compile time
 
 // ------------------------------------------------------------------------------------------------------------------------------------------------
 

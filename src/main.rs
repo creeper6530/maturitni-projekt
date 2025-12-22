@@ -13,31 +13,30 @@ const I2C_FREQ: hal::fugit::HertzU32 = hal::fugit::HertzU32::kHz(1000);
 
 const DECFIX_EXPONENT: i8 = -9; // We use 9 decimal places, which is enough for most calculations
 
+// Debugging imports
 use defmt::*;
 use defmt_rtt as _; // We start RTT in no-blocking mode, `probe-run` will switch to blocking mode. That's why we shall not disconnect the probe while the program is running.
 use panic_probe as _;
 
-use rp2040_hal as hal;
-use hal::{
+// Library imports
+use rp2040_hal::{
+    self as hal,
     pac,
 
-    clocks::{Clock, init_clocks_and_plls},
-    watchdog::Watchdog,
-    
+    clocks::init_clocks_and_plls,
     sio::Sio,
-
-    dma::single_buffer::Config as DmaSingleBufferConfig,
-    dma::DMAExt,
+    watchdog::Watchdog,
 };
-
-// Display imports
+use core::cell::RefCell;
 use embedded_graphics::{image::Image, prelude::*};
 use ssd1306::{prelude::*, Ssd1306, mode::BufferedGraphicsMode};
 use tinybmp::Bmp;
 
-use core::cell::RefCell;
+// Trait imports (for methods)
 use core::ops::DerefMut;
+use hal::clocks::Clock;
 
+// Custom module imports
 mod stack;
 use stack::*;
 mod textbox;
@@ -128,10 +127,9 @@ fn main() -> ! {
     .expect("Failed to initialize UART peripheral: bad configuration provided.");
     let (rx, tx) = uart.split();
     trace!("UART initialized");
-    
-    // Here we're basically just flexing that we can use DMA :D
-    let dma = peri.DMA.split(&mut peri.RESETS);
-    let tx_transfer = DmaSingleBufferConfig::new(dma.ch0, b"\x1b[2J\x1b[HUART initialised!\r\n", tx).start(); // Send a message over UART using DMA, also clear the terminal (VT100 codes)
+
+    // Send a message over UART, also clear the terminal (VT100 codes)
+    tx.write_full_blocking(b"\x1b[2J\x1b[HUART initialised!\r\n");
 
     // ----------------------------------------------------------------------------
 
@@ -149,10 +147,7 @@ fn main() -> ! {
         .inspect_err(|e| defmt::panic!("Error with display: {:?}", *e))
         .unwrap(); // Safe since the error would panic
 
-    trace!("Waiting for initial DMA transfer to complete, should be instant");
-    let (ch0, _, tx) = tx_transfer.wait(); // So that we can reuse them. We don't really care about reclaiming the &'static buffer tho, so we ignore it
-    trace!("Finished waiting");
-    let _new_tx_transfer = DmaSingleBufferConfig::new(ch0, b"Entering main loop\r\n", tx).start(); // Send another message with DMA, this time we don't need to reclaim the channel, so we don't wait for it to finish
+    tx.write_full_blocking(b"Entering main loop\r\n");
     info!("Entering main loop");
 
     // We declare these outside the loop to avoid stack reallocation on each iteration.
