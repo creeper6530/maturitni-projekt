@@ -10,6 +10,7 @@
   - See [ANSI escape code#Terminal input sequence](https://en.wikipedia.org/wiki/ANSI_escape_code?useskin=vector#Terminal_input_sequences) for more details
 - Consider adding attributes to the `memory.x` linker script, as described [here](https://home.cs.colorado.edu/~main/cs1300/doc/gnu/ld_3.html#SEC37).
 - There appears to exist a `rust_decimal` crate, but we're too deep in sunk cost fallacy now...
+- *~~Run `cargo fmt` on your code~~* No, `cargo fmt` messes the codebase up too badly and sometimes makes straight up illogical or inconsistent choices, do **NOT** use it. Perhaps we could give it another try with format-on-save when writing some other project anew.
 
 - Perhaps switch from `heapless` to `arrayvec` crate, crate `pio` (dependency of HAL) uses it too at version `v0.7.6`
   - `heapless` is made by the official Embedded WG libs team, but (according to crates.io) is 125 KiB as opposed to `arrayvec`'s 30,5 KiB due to less features overall, though most of it is indeed optimised away anyway
@@ -20,6 +21,5 @@
     - If we just do `Span::from_base_size()`, wouldn't it be easier? Perhaps could even avoid costly initialisation of a static unless `MaybeUninit` helps out.
 
 - Move the library-like files into an actual separate crate that would be taken as a dependency. **TESTS**, documentation, semver, public/private, feature gates and all that jazz.
-- Run `cargo fmt` on your code
 - Rewrite the swap code and operands (+-*/) to take advantage of the DoubleEndedIterator we return with `stack.multipop()`, though it's possible that it will need some reversing.
 - Optimize multiple draws in short succession. Possibly move some draws and flushes after the main match in `main()`?
