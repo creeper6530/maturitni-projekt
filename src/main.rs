@@ -57,20 +57,22 @@ use command_mode::handle_commands;
 #[used]
 pub static BOOT2: [u8; 256] = rp2040_boot2::BOOT_LOADER_W25Q080;
 
-defmt::timestamp!("{=u64:us}", {
+pub fn get_timestamp_us() -> u64 {
     /* Stolen from `https://docs.rs/rp2040-hal/latest/src/rp2040_hal/timer.rs.html#69-88`
     and `https://defmt.ferrous-systems.com/timestamps`, though customised greatly.
     We use the critical section to ensure no disruptions, because reading L latches the H register (datasheet section 4.6.2)
     It could have unforseen consequences if we try reading again while there's already a read in progress. */
 
+    // We dereference the TIMER peripheral's raw pointer and get a normal reference to it for the methods.
     // Safety: We are guaranteed that the PTR points to a valid place, since we assume the `pac` is infallible.
-    let timer_regs = unsafe { &*pac::TIMER::PTR }; // We dereference the TIMER peripheral's raw pointer and get a normal reference to it.
+    let timer_regs = unsafe { &*pac::TIMER::PTR };
     critical_section::with(|_| {
         let low: u32 = timer_regs.timelr().read().bits();
         let hi: u32 = timer_regs.timehr().read().bits();
         ((hi as u64) << 32) | (low as u64)
     })
-});
+}
+defmt::timestamp!("{=u64:us}", { get_timestamp_us() });
 
 #[hal::entry]
 fn main() -> ! {
@@ -596,7 +598,14 @@ where
     if txbx_data.is_empty() { return Err(CE::BadInput); };
     
     let num = DecimalFixed::parse_static_exp(txbx_data, DECFIX_EXPONENT)?;
-    stack.push(num)?;
+    match stack.push(num) {
+        Ok(()) => {},
+        Err((e, t)) => {
+            // .push() will only return CE::CapacityError
+            error!("Failed to push parsed number onto stack (CapacityError): {:?}", t);
+            return Err(e)
+        },
+    }
 
     // Moved down so that the compiler won't scream at me about borrowing issues
     textbox.clear();

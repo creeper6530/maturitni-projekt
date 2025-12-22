@@ -245,7 +245,8 @@ Must've contained multiple spaces.");
                     // Evaluation order is defined left-to-right
                     // We do NOT want to use short-circuiting here
                     if stack.push(b).is_err() | stack.push(a).is_err() {
-                        error!("Failed to push number onto stack.");
+                        // .push() will only ever return CapacityError
+                        error!("Failed to push number onto stack: CapacityError");
                         error!("This should be impossible, the stack should have enough space since we already popped from it.");
                         return Err(CE::Impossible);
                     };
@@ -253,8 +254,8 @@ Must've contained multiple spaces.");
                 },
                 (None, Some(a)) => {
                     warn!("Failed to swap top two elements of stack: stack has only one element.");
-                    if let Err(e) = stack.push(a) {
-                        error!("Failed to push number onto stack: {:?}", e);
+                    if stack.push(a).is_err() {
+                        error!("Failed to push number onto stack: CapacityError");
                         error!("This should be impossible, the stack should have enough space since we already popped from it.");
                         return Err(CE::Impossible);
                     }

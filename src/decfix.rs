@@ -1,6 +1,4 @@
 use defmt::Format;
-#[allow(unused_imports)]
-use defmt::{trace, debug, info, warn, error, panic, unreachable, unimplemented, todo};
 use heapless::String;
 use core::{
     fmt::Display,

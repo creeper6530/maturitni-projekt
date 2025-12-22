@@ -9,12 +9,17 @@
   - F-keys are ANSI escaped and could be used for more advanced functions instead of letter keys
   - See [ANSI escape code#Terminal input sequence](https://en.wikipedia.org/wiki/ANSI_escape_code?useskin=vector#Terminal_input_sequences) for more details
 - Consider adding attributes to the `memory.x` linker script, as described [here](https://home.cs.colorado.edu/~main/cs1300/doc/gnu/ld_3.html#SEC37).
-- Perhaps switch from `heapless` to `arrayvec` crate, crate `pio` (dependency of HAL) uses it too at version `v0.7.6`
 - There appears to exist a `rust_decimal` crate, but we're too deep in sunk cost fallacy now...
 
+- Perhaps switch from `heapless` to `arrayvec` crate, crate `pio` (dependency of HAL) uses it too at version `v0.7.6`
+  - `heapless` is made by the official Embedded WG libs team, but (according to crates.io) is 125 KiB as opposed to `arrayvec`'s 30,5 KiB due to less features overall, though most of it is indeed optimised away anyway
+  - If we do take the leap, don't forget to commit and test size with `cargo size` or `cargo bloat --crates`
 - Consider using some sort of allocator after all, maybe on SRAM 4 and 5?
+  - `talc` seems nice.
+  - Would probably need some `static mut`, `link-section` and `memory.x` jigglery-pokery
+    - If we just do `Span::from_base_size()`, wouldn't it be easier? Perhaps could even avoid costly initialisation of a static unless `MaybeUninit` helps out.
 
-- Remove all the log messages from the library-like files.
+- Move the library-like files into an actual separate crate that would be taken as a dependency. **TESTS**, documentation, semver, public/private, feature gates and all that jazz.
 - Run `cargo fmt` on your code
 - Rewrite the swap code and operands (+-*/) to take advantage of the DoubleEndedIterator we return with `stack.multipop()`, though it's possible that it will need some reversing.
 - Optimize multiple draws in short succession. Possibly move some draws and flushes after the main match in `main()`?

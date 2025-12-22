@@ -37,11 +37,6 @@ use core::{
     fmt::Write, // For the `write!` macro
 };
 
-// Debugging imports
-use defmt::*;
-use defmt_rtt as _;
-use panic_probe as _;
-
 use crate::custom_error::CustomError; // Because we already have the `mod` in `main.rs`
 use CustomError as CE; // Shorter alias
 
@@ -56,7 +51,7 @@ const PIXELS_REMOVED: u8 = 2;
 /// Size of String-s used for buffering text during writes, and for the textbox
 const TEXT_BUFFER_SIZE: usize = 32;
 /// Message to fill the textbox with when building a debug textbox
-const DEBUG_TEXTBOX_MESSAGE: &str = "DEBUG TEXTBOX";
+const DEBUG_TEXTBOX_MESSAGE: &'static str = "DEBUG TEXTBOX";
 /** Number of pixels to offset the textbox from the bottom of the display by
 
 This constant shall be determined by the programmer,
@@ -175,14 +170,13 @@ where
     }
 
     pub fn build_debug(mut self) -> CustomTextbox<'a, DI, SIZE> {
-        warn!("Building a debug textbox, filling it with default values.");
-
-        self.text.clear();
+        // The String should be empty at this point
+        debug_assert!(self.text.is_empty(), "Tried to build a debug textbox, but the textbox text is not empty!");
+        
         self.text.push_str(DEBUG_TEXTBOX_MESSAGE)
             .expect("TEXT_BUFFER_SIZE is too small for DEBUG_TEXTBOX_MESSAGE, this should be impossible!"); // We checked at compile time
 
         CustomTextbox {
-            // Fill the text with a debug message
             text: self.text,
 
             disp_dimensions: self.disp_dimensions,
@@ -289,20 +283,14 @@ where
     pub fn append_str(&mut self, string: &str) -> Result<(), CustomError> {
         // We do not check for buffer overflow, as `push_str` will do that for us
         // `heapless` v0.9 changed the error type of `push` and `push_str` from `()` to `CapacityError`
-        if self.text.push_str(string).is_err() {
-            warn!("Tried to append a string that is too long for the textbox, returning Err.");
-            return Err(CE::CapacityError);
-        };
-        Ok(())
+
+        // We don't need e.into() for the zero-sized CapacityError,
+        // and like this it's clearer than Ok(push_str(...)?)
+        self.text.push_str(string).map_err(|_| CE::CapacityError)
     }
 
     pub fn append_char(&mut self, c: char) -> Result<(), CustomError> {
-        // We could possibly drop the error message and just use the question mark operator
-        self.text.push(c)
-            .map_err(|_| {
-                warn!("Tried to append a character that is too long for the textbox, returning Err.");
-                CE::CapacityError
-            })
+        self.text.push(c).map_err(|_| CE::CapacityError)
     }
 
     /// Returns a cloned String of the textbox's text
@@ -316,7 +304,6 @@ where
 
     pub fn backspace(&mut self, count: usize) -> Result<(), CustomError> {
         if self.text.len() < count {
-            warn!("Tried to backspace more than is present, returning an Err.");
             return Err(CE::BadInput);
         }
 
@@ -361,46 +348,34 @@ where
 
     pub fn insert_at(&mut self, index: usize, c: char) -> Result<(), CustomError> {
         if index > self.text.len() {
-            warn!("Tried to insert a character at an out-of-bounds index.");
             return Err(CE::BadInput);
         }
         if !self.text.is_char_boundary(index) {
-            warn!("Tried to insert a character at a non-char-boundary index.");
             return Err(CE::BadInput);
         }
-        if c.len_utf8() + self.text.len() > TEXT_BUFFER_SIZE {
-            warn!("Tried to insert a character that is too long for the textbox, returning Err.");
-            return Err(CE::CapacityError);
-        }
-
+        
+        // Checks for capacity overflow by itself
         self.text.insert(index, c)?;
         Ok(())
     }
     pub fn insert_str_at(&mut self, index: usize, string: &str) -> Result<(), CustomError> {
         if index > self.text.len() {
-            warn!("Tried to insert a string at an out-of-bounds index.");
             return Err(CE::BadInput);
         }
         if !self.text.is_char_boundary(index) {
-            warn!("Tried to insert a string at a non-char-boundary index.");
             return Err(CE::BadInput);
         }
-        if string.len() + self.text.len() > TEXT_BUFFER_SIZE {
-            warn!("Tried to insert a string that is too long for the textbox, returning Err.");
-            return Err(CE::CapacityError);
-        }
-
+        
+        // Checks for capacity overflow by itself
         self.text.insert_str(index, string)?;
         Ok(())
     }
 
     pub fn remove_at(&mut self, index: usize) -> Result<char, CustomError> {
         if index >= self.text.len() {
-            warn!("Tried to remove a character at an out-of-bounds index.");
             return Err(CE::BadInput);
         }
         if !self.text.is_char_boundary(index) {
-            warn!("Tried to remove a character at a non-char-boundary index.");
             return Err(CE::BadInput);
         }
 

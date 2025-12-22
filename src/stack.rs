@@ -37,10 +37,8 @@ use core::{
     fmt::Write, // For the `write!` macro
 };
 
-// Debugging imports
-use defmt::*;
-use defmt_rtt as _;
-use panic_probe as _;
+// Possibly gate this behind a defmt feature flag if we move this into a library crate
+use defmt::trace; // For logging in `draw()` (nowhere else)
 
 use crate::custom_error::CustomError; // Because we already have the `mod` in `main.rs`
 use CustomError as CE; // Shorter alias
@@ -167,8 +165,6 @@ where
     SIZE: DisplaySize,
 {
     pub fn build_debug(mut self) -> CustomStack<'a, T, DI, SIZE> {
-        warn!("Building a debug stack, filling it with default values.");
-
         self.data.resize_default(MAX_STACK_SIZE)
             // This Result does not have T as its Err type, so no Debug bound arises here
             .expect("We're resizing to MAX_STACK_SIZE, so this should never fail!");
@@ -210,16 +206,14 @@ where
     SIZE: DisplaySize,
 {
     /// Pushes a value onto the stack.
-    /// If the stack is full, it returns an error with the value that could not be pushed.
     /// 
     /// We need ownership of the value to push it onto the stack.
     /// (In reality it's trivial to since DecimalFixed we use is Copy)
-    pub fn push(&mut self, value: T) -> Result<(), CustomError> {
-        if self.data.push(value).is_err() {
-            warn!("Tried to push a value onto a full stack, returning Err.");
-            return Err(CE::CapacityError);
-        }
-        Ok(())
+    /// 
+    /// In Err we return a tuple including the value that was attempted to be pushed,
+    /// so that the caller can decide what to do with it.
+    pub fn push(&mut self, value: T) -> Result<(), (CustomError, T)> {
+        self.data.push(value).map_err(|t| (CE::CapacityError, t))
     }
 
     /// Pushes multiple values onto the stack from any iterator.
@@ -267,12 +261,7 @@ where
     /// Pops a value from the stack.
     /// If the stack is empty, it returns `None`.
     pub fn pop(&mut self) -> Option<T> {
-        let popped = self.data.pop();
-
-        if popped.is_none() {
-            warn!("Tried to pop from an empty stack, returning None.");
-        }
-        popped
+        self.data.pop()
     }
 
     /// Returns a double-ended iterator that yields up to `n` popped elements from the stack.
@@ -286,7 +275,6 @@ where
     pub fn multipop(&mut self, n: u8) -> Option<impl DoubleEndedIterator<Item = T>> {
     // See https://doc.rust-lang.org/stable/book/ch10-02-traits.html#returning-types-that-implement-traits for explanation of what we're returning here.
         if self.data.is_empty() {
-            warn!("Tried to multipop from an empty stack, returning None.");
             return None;
         }
 
@@ -299,13 +287,7 @@ where
     /// Returns the last value pushed onto the stack without removing it.
     /// If the stack is empty, it returns `None`.
     pub fn peek(&self) -> Option<&T> {
-        let last = self.data.last();
-
-        if last.is_none() {
-            warn!("Tried to peek into an empty stack, returning None.");
-        }
-
-        last
+        self.data.last()
     }
 
     /// Returns the last `n` values pushed onto the stack without removing them as a slice.
@@ -321,7 +303,6 @@ where
         // TODO: Test it.
 
         if self.data.is_empty() {
-            warn!("Tried to peek into an empty stack, returning None.");
             return None;
         }
 
@@ -360,11 +341,7 @@ where
     /// We need the `Clone` bound on `T` to be able to clone the elements from the slice.
     /// To push multiple values from an IntoIterator collection that owns the values, use `push_iterator()`.
     pub fn push_slice(&mut self, slice: &[T]) -> Result<(), CustomError> {
-        if self.data.extend_from_slice(slice).is_err() {
-            warn!("Tried to push a slice onto the stack that would overflow it, returning Err.");
-            return Err(CE::CapacityError);
-        };
-        Ok(())
+        self.data.extend_from_slice(slice).map_err(|_| CE::CapacityError)
     }
 }
 
@@ -407,6 +384,8 @@ where
             (self.disp_dimensions.height / text_height // Integer division: always rounded down (desirable here)
             ) - 1 // -1 because we want to leave space for the bottom line
         );
+
+        // Possibly gate this behind a defmt feature flag if we move this into a library crate
         trace!("Drawing {} lines on the display.", num_lines);
 
         let text_vec = self.multipeek(num_lines).expect("We just checked the Vec is empty!");
