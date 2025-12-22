@@ -11,8 +11,6 @@
 // 1 MHz, the maximum speed for I²C on the RP2040 (so-called Fast Mode Plus; datasheet 4.3.3), and the SSD1306 can handle it well
 const I2C_FREQ: hal::fugit::HertzU32 = hal::fugit::HertzU32::kHz(1000);
 
-const DECFIX_EXPONENT: i8 = -9; // We use 9 decimal places, which is enough for most calculations
-
 // Debugging imports
 use defmt::*;
 use defmt_rtt as _; // We start RTT in no-blocking mode, `probe-run` will switch to blocking mode. That's why we shall not disconnect the probe while the program is running.
@@ -29,7 +27,7 @@ use rp2040_hal::{
 };
 use core::cell::RefCell;
 use embedded_graphics::{image::Image, prelude::*};
-use ssd1306::{prelude::*, Ssd1306, mode::BufferedGraphicsMode};
+use ssd1306::{Ssd1306, mode::BufferedGraphicsMode, prelude::*};
 use tinybmp::Bmp;
 
 // Trait imports (for methods)
@@ -592,7 +590,7 @@ where
     let txbx_data = textbox.get_text_str();
     if txbx_data.is_empty() { return Err(CE::BadInput); };
     
-    let num = DecimalFixed::parse_static_exp(txbx_data, DECFIX_EXPONENT)?;
+    let num = DecimalFixed::parse_static_exp(txbx_data, None)?; // Use default exponent by passing None
     match stack.push(num) {
         Ok(()) => {},
         Err((e, t)) => {

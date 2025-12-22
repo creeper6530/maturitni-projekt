@@ -1,7 +1,7 @@
 use core::fmt;
 use defmt::Format as DefmtFormat;
 
-use core::num::{ParseIntError, IntErrorKind};
+use core::num::{ParseIntError, IntErrorKind, TryFromIntError};
 use display_interface::DisplayError;
 use heapless::CapacityError;
 use rp2040_hal::uart::ReadErrorType;
@@ -94,6 +94,14 @@ impl fmt::Display for CustomError {
 }
 
 impl core::error::Error for CustomError {}
+
+// Happens when you try to convert bigger int into smaller and it's outside the range.
+// We map it to MathOverflow for simplicity, since it's a kind of overflow.
+impl From<TryFromIntError> for CustomError {
+    fn from(_: TryFromIntError) -> Self {
+        CE::MathOverflow
+    }
+}
 
 impl From<ParseIntError> for CustomError {
     fn from(err: ParseIntError) -> Self {

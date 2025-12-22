@@ -23,3 +23,4 @@
 - Move the library-like files into an actual separate crate that would be taken as a dependency. **TESTS**, documentation, semver, public/private, feature gates and all that jazz.
 - Rewrite the swap code and operands (+-*/) to take advantage of the DoubleEndedIterator we return with `stack.multipop()`, though it's possible that it will need some reversing.
 - Optimize multiple draws in short succession. Possibly move some draws and flushes after the main match in `main()`?
+- Change the useless saving attempt of `exponent: i8` that only needs constant converting. For decision, take in question the struct size with padding and most common `exponent as ...` occurence.
