@@ -22,9 +22,6 @@ ssd1306 = "0.10"
 embedded-graphics = { version = "0.8", features = ["defmt"] }
 tinybmp = "0.6"
 
-[lints.clippy]
-needless_return = "allow"
-
 # cargo build/run
 [profile.dev]
 codegen-units = 1
