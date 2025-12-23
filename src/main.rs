@@ -9,6 +9,7 @@ const I2C_FREQ: hal::fugit::HertzU32 = hal::fugit::HertzU32::kHz(1000);
 
 use defmt::*;
 use defmt_rtt as _;
+use heapless::{String, format};
 use panic_probe as _;
 
 use rp2040_hal as hal;
@@ -23,7 +24,7 @@ use hal::{
 use cortex_m::asm;
 
 // Display imports
-use ssd1306::{prelude::*, Ssd1306};
+use ssd1306::{Ssd1306, mode::BufferedGraphicsMode, prelude::*};
 use embedded_graphics::{
     prelude::*,
     pixelcolor::BinaryColor,
@@ -40,18 +41,7 @@ use embedded_graphics::{
 
         Text,
     },
-
-    primitives::{
-        PrimitiveStyleBuilder,
-        StrokeAlignment,
-
-        Rectangle,
-        Triangle,
-    },
-
-    image::Image,
 };
-use tinybmp::Bmp;
 
 mod stack;
 use stack::*;
@@ -77,6 +67,21 @@ defmt::timestamp!("{=u64:us}", {
     })
 });
 
+/// A thin wrapper around the `bkpt` assembly instruction to set a software breakpoint.
+/// Useful, because VSCode can set maximum 4 hardware breakpoints on the RP2040,
+/// but we have unlimited software breakpoints.
+/// 
+/// Unlike `cortex_m::asm::bkpt()`, this macro allows us to access the variables
+/// (for some arcane, unclear reason) when the breakpoint is hit.
+/// 
+/// SAFETY: The caller must ensure that a debugger is attached when this macro is invoked,
+/// else it will simply cause a hard fault.
+macro_rules! hw_bkpt {
+    () => {
+        unsafe { core::arch::asm!("bkpt"); }
+    };
+}
+
 // ------------------------------------------------------------------------------------------------------------------------------------------------
 
 #[hal::entry]
@@ -96,7 +101,7 @@ fn main() -> ! {
         &mut peri.RESETS,
         &mut watchdog,
     ).unwrap();
-    let mut delay = cortex_m::delay::Delay::new(core.SYST, clocks.system_clock.freq().to_Hz());
+    let mut _delay = cortex_m::delay::Delay::new(core.SYST, clocks.system_clock.freq().to_Hz()); // Unused
     trace!("Clocks initialized");
 
     let pins = hal::gpio::Pins::new(
@@ -126,25 +131,74 @@ fn main() -> ! {
         .into_buffered_graphics_mode(); // Needed to support embedded-graphics.
     disp.init().unwrap(); // Automatically clears it as well; without that it would show grain as (V)RAM is random on powerup.
     disp.set_brightness(Brightness::BRIGHTEST).unwrap(); // XXX: Good to dim when working at night!
-    debug!("Display initialized");
+    trace!("Display initialized");
 
-    // We show a Rust logo bitmap on the display just to show off images.
-    // Look at commit 59f55b280c9fee0391c036f87171be7993ee8497 to see more about images.
-    // You can make compatible 1-bit BMPs at https://convertico.com/png-to-bmp/
-    Image::new(
-        &Bmp::from_slice(include_bytes!("rust.bmp")).unwrap(), // The include_bytes! macro yields a `&'static [u8; N]` slice equal to the file bytes.
-        (32, 0).into(), // The image is 64x64, so we center it horizontally, since the position is top-left corner.
-    ).draw(&mut disp).unwrap();
+    info!("Starting the stack jigglery-pokery");
 
-    // Since every debug goes with a timestamp, this measures the time taken to flush it
-    trace!("Flushing");
-    disp.flush().unwrap(); // The draw method only draws to a buffer (for performance), we need to flush it over I2C.
-    trace!("Flushed");
+    // Initialise an empty stack that holds `isize`s
+    // Range of isize is `-2147483648..=2147483647` on our 32-bit target
+    let mut stack = CustomStack::<u8>::new(); // We're using the turbofish syntax here
 
-    info!("Showed an image, delaying...");
-    delay.delay_ms(3_000);
+    // Push some initial values onto the stack
+    //hw_bkpt!();
+    stack.push_slice(&[1, 2, 3, 4, 5, 6]).unwrap();
+    debug!("Stack: {:?}", stack);
+    show_on_disp(&mut disp, &stack.peek_all());
 
-    debug!("Drawing all the funsies");
+    // Push another value
+    hw_bkpt!();
+    stack.push(7).unwrap();
+    show_on_disp(&mut disp, &stack.peek_all());
+
+    // Peek at the top value
+    hw_bkpt!();
+    let top = stack.peek().unwrap();
+    debug!("Top value is {}", top);
+    show_on_disp(&mut disp, &stack.peek_all());
+
+    // Pop a value off the stack
+    hw_bkpt!();
+    let popped = stack.pop().unwrap();
+    debug!("Popped value is {}", popped);
+    show_on_disp(&mut disp, &stack.peek_all());
+
+    // Pop multiple values off the stack
+    hw_bkpt!();
+    let iter = stack.multipop(3).unwrap();
+    debug!("Starting a multipop loop");
+    for value in iter {
+        hw_bkpt!();
+        debug!("Multipopped value: {}", value);
+
+        // We can't get immutable borrow of stack here to debug it,
+        // because the iterator still holds a mutable borrow until it's fully consumed.
+        // Luckily we can peek at the stack through debugger watches.
+        //debug!("Stack now: {:?}", stack);
+    }
+    // The iterator will be fully consumed after the loop ends, releasing the mutable borrow on the stack.
+    show_on_disp(&mut disp, &stack.peek_all());
+
+    // Peek at top 2 values as a slice
+    hw_bkpt!();
+    let top_slice = stack.multipeek(2).unwrap();
+    debug!("Top 3 values as slice: {:?}", top_slice);
+    show_on_disp(&mut disp, &stack.peek_all());
+
+    hw_bkpt!();
+    info!("All done, entering infinite WFI loop");
+    loop {
+        asm::wfi();
+    }
+}
+
+
+fn show_on_disp<DI, SIZE, T>(disp: &mut Ssd1306<DI, SIZE, BufferedGraphicsMode<SIZE>>, value: &T)
+where
+    DI: WriteOnlyDataCommand,
+    SIZE: DisplaySize,
+    T: core::fmt::Debug,
+{
+    let buffer: String<64> = format!("{:?}", value).unwrap();
 
     disp.clear_buffer(); // We don't want to draw over the image
 
@@ -159,60 +213,14 @@ fn main() -> ! {
         .alignment(Alignment::Left)
         .build();
 
-    // Standard white stroke with 2px width and transparent fill
-    let primitives_style = PrimitiveStyleBuilder::new()
-        .stroke_color(BinaryColor::On)
-        .stroke_width(2)
-        .stroke_alignment(StrokeAlignment::Inside)
-        .build();
-
-    // Draw a rectangle over the entire screen
-    Rectangle::new(
-        (0, 0).into(), // Top-left corner
-        (128, 64).into() // Size (here equals size of display)
-    ).into_styled(primitives_style) // Style it with the appropriate style
-    .draw(&mut disp)
-    .unwrap();
-
-    // Another, smaller square
-    Rectangle::new(
-        (5, 5).into(), // Top-left corner
-        (35, 35).into() // Size (here equals size of display)
-    ).into_styled(primitives_style) // Style it with the appropriate style
-    .draw(&mut disp)
-    .unwrap();
-
-    // Randomly chosen points for the triangle
-    Triangle::new(
-        (20, 20).into(),
-        (105, 15).into(),
-        (70, 45).into()
-    ).into_styled(primitives_style)
-    .draw(&mut disp)
-    .unwrap();
-
     Text::with_text_style(
-        "Příliš žluťoučký",
-        (10, (64 - 15)).into(), // Position: with the used baseline and alignment, this is top-center; 15px from bottom, centered horizontally
+        buffer.as_str(),
+        (0, 0).into(), // Top-left corner
         character_style, // Text doesn't do into_styled because there are two "styles"
         text_style,
-    ).draw(&mut disp)
-    .unwrap();
+    ).draw(disp).unwrap();
 
     trace!("Flushing");
     disp.flush().unwrap();
     trace!("Flushed");
-
-    info!("Starting the stack jigglery-pokery");
-
-    // Range of isize is `-2147483648..=2147483647` on our 32-bit target
-    let mut stack = CustomStack::<isize>::new(); // We're using the turbofish syntax here
-
-    stack.push_slice(&[5, 6, 7, 8, 9, 10]).unwrap();
-
-    loop {
-        asm::wfi();
-    }
 }
-
-// End of file

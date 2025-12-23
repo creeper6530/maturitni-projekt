@@ -28,7 +28,7 @@ use ssd1306::{
 };
 
 // Imports for the actual code
-use heapless::{Vec, String};
+use heapless::{CapacityError, String, Vec};
 use core::{
     prelude::v1::*, // I sincerely hope this is unnecessary, but who knows?
     cell::RefCell, // For the `RefCell` type
@@ -38,25 +38,20 @@ use core::{
 };
 
 // Debugging imports
-use defmt::*;
-use defmt_rtt as _;
-use panic_probe as _;
+use defmt::Format as DefmtFormat;
 
 // ------------------------------------------------------------------------------------------------------------------------------------------------
 
 // Compile time constants
 /// Maximum size of the stack
 const MAX_STACK_SIZE: usize = 256;
-/// Maximum number of elements to pop at once
-const MAX_MULTIPOP_SIZE: usize = 16;
 
 // ------------------------------------------------------------------------------------------------------------------------------------------------
 
-/// All getters of this struct copy the data, not give a reference to it.
-#[allow(dead_code)]
+#[derive(Debug, Clone, DefmtFormat)]
 pub struct CustomStack<T>
 where
-    T: Copy + core::fmt::Debug, /* The `T` type parameter allows the stack to hold any type of data
+    T: Copy, /* The `T` type parameter allows the stack to hold any type of data
                 that implements the `Copy` trait (which means they can be duplicated easily),
                 and that can be formatted. */
 {
@@ -66,7 +61,7 @@ where
 #[allow(dead_code)]
 impl<T> CustomStack<T>
 where
-    T: Copy + core::fmt::Debug,
+    T: Copy,
 {
     /// Creates a new, empty stack.
     pub fn new() -> Self {
@@ -78,67 +73,58 @@ where
     /// Pushes a value onto the stack.
     /// If the stack is full, it returns an error with the value that could not be pushed.
     pub fn push(&mut self, value: T) -> Result<(), T> {
-        let pushed = self.data.push(value);
-        if pushed.is_err() {
-            warn!("Tried to push a value onto a full stack, returning Err.");
-        }
-        return pushed;
+        self.data.push(value)
     }
 
+    /// Pushes a slice of values onto the stack.
+    /// If the stack does not have enough space, it returns an error.
+    /// 
+    /// The last element of the slice will be the topmost element of the stack.
     pub fn push_slice(&mut self, slice: &[T]) -> Result<(), ()> {
         if self.data.len() + slice.len() > MAX_STACK_SIZE {
-            warn!("Tried to push a slice onto the stack that would overflow it, returning Err.");
             return Err(());
         }
 
-        return self.data.extend_from_slice(slice).map_err(|_| ()); // Technically could be unwrapped because of the check above, but better safe than sorry
+        self.data.extend_from_slice(slice).expect("We already checked that capacity is OK!");
+        Ok(())
     }
 
     /// Pops a value from the stack.
     /// If the stack is empty, it returns `None`.
     pub fn pop(&mut self) -> Option<T> {
-        let popped = self.data.pop();
-
-        match popped {
-            None => {
-                warn!("Tried to pop from an empty stack, returning None.");
-                return None
-            },
-            Some(value) => return Some(value) // We don't need to clone here, since `T` is `Copy`
-        }
+        self.data.pop()
     }
 
-    /// Pops `n` elements from the stack and returns them as a slice.
-    /// If `n` is greater than the stack size, it returns the entire stack as a slice.
-    /// If the stack is empty, it returns `None`.
+    /// Returns a double-ended iterator that yields up to `n` popped elements from the stack.
+    /// Each `.next()` call on the iterator pops one, but the rest are still popped even if the iterator is dropped before being fully consumed.
     /// 
-    /// The topmost element is the last element in the returned vector.
+    /// If the stack is empty, it returns `None`. If you try to pop more elements than there are, it pops all.
     /// 
-    /// A const controls the maximum number of elements that can be popped at once.
-    /// We need the Vec because returning a slice would not copy the data, just reference them.
-    pub fn multipop(&mut self, n: u8) -> Option<Vec<T, MAX_MULTIPOP_SIZE>> {
-        let peeked = self.multipeek(n)?; // Use `multipeek` to get the last `n` elements with all the checks
-        // Notice that we use `?` to handle the case where `multipeek` returns `None`
-
-        for _ in 0..(peeked.len()) {
-            self.data.pop(); // Pop the elements from the stack, drop the output, since we already have them in `peeked`
+    /// Note that the returned iterator still keeps a mutable borrow on the stack until it is fully consumed or dropped.
+    /// 
+    /// The **FIRST** item yielded by the iterator is the topmost element of the stack.
+    pub fn multipop(&mut self, n: u8) -> Option<impl DoubleEndedIterator<Item = T>> {
+    // See https://doc.rust-lang.org/stable/book/ch10-02-traits.html#returning-types-that-implement-traits for explanation of what we're returning here.
+        if self.data.is_empty() {
+            return None;
         }
 
-        return Some(peeked);
+        // The caller may not need to collect it into a Vec, so we return the iterator directly.
+        // If the iterator is dropped before it's fully consumed, the data is still removed from the stack.
+        // Thanks to saturating_sub, we don't have to check if n > len here.
+        Some(
+            self.data.drain(self.data.len().saturating_sub(n as usize)..)
+                .rev() // Reverse the iterator so that the first item yielded is the topmost element of the stack.
+        )
     }
 
-    /// Returns the last value pushed onto the stack without removing it.
+    /// Optionally returns a reference to the last value
+    /// pushed onto the stack without removing it.
+    /// Use `.copied()` on the returned `Option<&T>` to get an `Option<T>`.
+    /// 
     /// If the stack is empty, it returns `None`.
-    pub fn peek(&self) -> Option<T> {
-        let last = self.data.last();
-
-        match last {
-            None => {
-                warn!("Tried to peek into an empty stack, returning None.");
-                return None;
-            },
-            Some(value) => return Some(*value) // We can dereference the last element instead of .clone() since `T` is `Copy`
-        }
+    pub fn peek(&self) -> Option<&T> {
+        self.data.last()
     }
 
     /// Returns the last `n` values pushed onto the stack without removing them as a slice.
@@ -147,24 +133,22 @@ where
     /// 
     /// The topmost element is the last element in the returned slice.
     /// 
-    /// A const controls the maximum number of elements that can be popped at once.
-    /// We need the Vec because returning a slice would not copy the data, just reference them.
-    pub fn multipeek(&self, n: u8) -> Option<Vec<T, MAX_MULTIPOP_SIZE>> {
-        let n = n as usize;
+    /// For efficiency's sake, we return a slice.
+    pub fn multipeek(&self, n: u8) -> Option<&[T]> {
+        let n = n as usize; // Shadow the n parameter as usize for easier usage.
+        // Perhaps simply changing the parameter type to usize would be better??? Not like it saves any memory, it likely gets passed in a register anyway.
+        // TODO: Test it.
 
         if self.data.is_empty() {
-            warn!("Tried to peek into an empty stack, returning None.");
             return None;
         }
-        
-        if n > self.data.len() {
-            warn!("Tried to peek further than the stack size, returning the entire stack.");
-            return Vec::from_slice(self.data.as_slice()).ok(); // Not very obvious, but we are cloning the slice
-        }
 
-        let slice = &self.data[self.data.len() - n..]; // Get the last `n` elements as a slice
+        Some(&self.data[self.data.len().saturating_sub(n)..]) // Get the last `n` elements as a slice.
+        // The `saturating_sub` ensures that if n > len, we get 0 as the start index, effectively returning the entire stack.
+    }
 
-        return Vec::from_slice(slice).ok();
+    pub fn peek_all(&self) -> &[T] {
+        return self.data.as_slice();
     }
 
     /// Clears the entire stack
@@ -172,11 +156,14 @@ where
     /// ## Warning
     /// This method will cause all data in the stack to be lost.
     pub fn clear(&mut self) {
-        warn!("Clearing the stack, all data will be lost.");
         self.data.clear();
     }
 
     pub fn len(&self) -> usize {
         return self.data.len();
+    }
+
+    pub fn is_empty(&self) -> bool {
+        return self.data.is_empty();
     }
 }
