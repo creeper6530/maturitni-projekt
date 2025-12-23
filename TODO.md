@@ -23,4 +23,8 @@
 - Move the library-like files into an actual separate crate that would be taken as a dependency. **TESTS**, documentation, semver, public/private, feature gates and all that jazz.
 - Rewrite the swap code and operands (+-*/) to take advantage of the DoubleEndedIterator we return with `stack.multipop()`, though it's possible that it will need some reversing.
 - Optimize multiple draws in short succession. Possibly move some draws and flushes after the main match in `main()`?
-- Change the useless saving attempt of `exponent: i8` that only needs constant converting. For decision, take in question the struct size with padding and most common `exponent as ...` occurence.
+- Change the useless space-saving attempt of `exponent: i8` that only needs constant converting and is invalidated by alignment -> padding anyway.
+  - When deciding, do a search for `exponent as` and `exponent) as` and count the types we're converting into. `u32` appears to lead, but we need `i*`!!
+  - Take struct size with padding into question. It appears to be pegged at size=16 align=0x8 up until `i64`.
+
+- # START STABILIZING AND DOCUMENTING!!!
