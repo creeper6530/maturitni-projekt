@@ -61,21 +61,6 @@ defmt::timestamp!("{=u64:us}", {
     })
 });
 
-/// A thin wrapper around the `bkpt` assembly instruction to set a software breakpoint.
-/// Useful, because VSCode can set maximum 4 hardware breakpoints on the RP2040,
-/// but we have unlimited software breakpoints.
-/// 
-/// Unlike `cortex_m::asm::bkpt()`, this macro allows us to access the variables
-/// (for some arcane, unclear reason) when the breakpoint is hit.
-/// 
-/// SAFETY: The caller must ensure that a debugger is attached when this macro is invoked,
-/// else it will simply cause a hard fault.
-macro_rules! hw_bkpt {
-    () => {
-        unsafe { core::arch::asm!("bkpt"); }
-    };
-}
-
 // ------------------------------------------------------------------------------------------------------------------------------------------------
 
 #[hal::entry]
@@ -129,39 +114,39 @@ fn main() -> ! {
 
     info!("Starting the stack jigglery-pokery");
 
-    // Initialise an empty stack that holds `isize`s
-    // Range of isize is `-2147483648..=2147483647` on our 32-bit target
+    unsafe { core::arch::asm!("bkpt"); }
+    // Range of u8 is 0..=255
     let mut stack = CustomStack::<u8>::new(); // We're using the turbofish syntax here
 
     // Push some initial values onto the stack
-    //hw_bkpt!();
+    //unsafe { core::arch::asm!("bkpt"); }
     stack.push_slice(&[1, 2, 3, 4, 5, 6]).unwrap();
     debug!("Stack: {:?}", stack);
     show_on_disp(&mut disp, &stack.peek_all());
 
     // Push another value
-    hw_bkpt!();
+    unsafe { core::arch::asm!("bkpt"); }
     stack.push(7).unwrap();
     show_on_disp(&mut disp, &stack.peek_all());
 
     // Peek at the top value
-    hw_bkpt!();
+    unsafe { core::arch::asm!("bkpt"); }
     let top = stack.peek().unwrap();
     debug!("Top value is {}", top);
     show_on_disp(&mut disp, &stack.peek_all());
 
     // Pop a value off the stack
-    hw_bkpt!();
+    unsafe { core::arch::asm!("bkpt"); }
     let popped = stack.pop().unwrap();
     debug!("Popped value is {}", popped);
     show_on_disp(&mut disp, &stack.peek_all());
 
     // Pop multiple values off the stack
-    hw_bkpt!();
+    unsafe { core::arch::asm!("bkpt"); }
     let iter = stack.multipop(3).unwrap();
     debug!("Starting a multipop loop");
     for value in iter {
-        hw_bkpt!();
+        unsafe { core::arch::asm!("bkpt"); }
         debug!("Multipopped value: {}", value);
 
         // We can't get immutable borrow of stack here to debug it,
@@ -169,16 +154,24 @@ fn main() -> ! {
         // Luckily we can peek at the stack through debugger watches.
         //debug!("Stack now: {:?}", stack);
     }
+    unsafe { core::arch::asm!("bkpt"); }
     // The iterator will be fully consumed after the loop ends, releasing the mutable borrow on the stack.
     show_on_disp(&mut disp, &stack.peek_all());
 
     // Peek at top 2 values as a slice
-    hw_bkpt!();
+    unsafe { core::arch::asm!("bkpt"); }
     let top_slice = stack.multipeek(2).unwrap();
     debug!("Top 3 values as slice: {:?}", top_slice);
     show_on_disp(&mut disp, &stack.peek_all());
 
-    hw_bkpt!();
+    unsafe { core::arch::asm!("bkpt"); }
+    if stack.is_empty() {
+        error!("Stack is empty!! HOW?!");
+    } else {
+        debug!("Stack is not empty.");
+    }
+
+    unsafe { core::arch::asm!("bkpt"); }
     info!("All done, entering infinite WFI loop");
     loop {
         cortex_m::asm::wfi();
