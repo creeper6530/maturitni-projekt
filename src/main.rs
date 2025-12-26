@@ -11,7 +11,6 @@ use defmt::*;
 use defmt_rtt as _;
 use panic_probe as _;
 
-use core::cell::RefCell;
 use rp2040_hal::{
     self as hal,
     pac,
@@ -20,11 +19,22 @@ use rp2040_hal::{
     watchdog::Watchdog,
     sio::Sio,
 };
+use heapless::{
+    String,
+    format
+};
 
 // Display imports
 use ssd1306::{
     prelude::*,
     Ssd1306,
+    mode::BufferedGraphicsMode,
+};
+use embedded_graphics::{
+    prelude::*,
+    pixelcolor::BinaryColor,
+    mono_font,
+    text,
 };
 
 mod stack;
@@ -105,33 +115,31 @@ fn main() -> ! {
     info!("Starting the stack jigglery-pokery");
 
     unsafe { core::arch::asm!("bkpt"); }
-    let disp_refcell = RefCell::new(disp);
     // Range of u8 is 0..=255
-    let mut stack = CustomStackBuilder::<'_, u8, _, _>::new(&disp_refcell) // We're using the turbofish syntax here
-        .build();
+    let mut stack = CustomStack::<u8>::new(); // We're using the turbofish syntax here
 
     // Push some initial values onto the stack
     //unsafe { core::arch::asm!("bkpt"); }
     stack.push_slice(&[1, 2, 3, 4, 5, 6]).unwrap();
-    debug!("Stack: {:?}", stack.peek_all());
-    stack.draw();
+    debug!("Stack: {:?}", stack);
+    show_on_disp(&mut disp, &stack.peek_all());
 
     // Push another value
     unsafe { core::arch::asm!("bkpt"); }
     stack.push(7).unwrap();
-    stack.draw();
+    show_on_disp(&mut disp, &stack.peek_all());
 
     // Peek at the top value
     unsafe { core::arch::asm!("bkpt"); }
     let top = stack.peek().unwrap();
     debug!("Top value is {}", top);
-    stack.draw();
+    show_on_disp(&mut disp, &stack.peek_all());
 
     // Pop a value off the stack
     unsafe { core::arch::asm!("bkpt"); }
     let popped = stack.pop().unwrap();
     debug!("Popped value is {}", popped);
-    stack.draw();
+    show_on_disp(&mut disp, &stack.peek_all());
 
     // Pop multiple values off the stack
     unsafe { core::arch::asm!("bkpt"); }
@@ -148,13 +156,13 @@ fn main() -> ! {
     }
     unsafe { core::arch::asm!("bkpt"); }
     // The iterator will be fully consumed after the loop ends, releasing the mutable borrow on the stack.
-    stack.draw();
+    show_on_disp(&mut disp, &stack.peek_all());
 
     // Peek at top 2 values as a slice
     unsafe { core::arch::asm!("bkpt"); }
     let top_slice = stack.multipeek(2).unwrap();
     debug!("Top 3 values as slice: {:?}", top_slice);
-    stack.draw();
+    show_on_disp(&mut disp, &stack.peek_all());
 
     unsafe { core::arch::asm!("bkpt"); }
     if stack.is_empty() {
@@ -168,4 +176,41 @@ fn main() -> ! {
     loop {
         cortex_m::asm::wfi();
     }
+}
+
+
+fn show_on_disp<DI, SIZE, T>(disp: &mut Ssd1306<DI, SIZE, BufferedGraphicsMode<SIZE>>, value: &T)
+where
+    DI: WriteOnlyDataCommand,
+    SIZE: DisplaySize,
+    T: core::fmt::Debug,
+{
+    let buffer: String<64> = format!("{:?}", value).unwrap();
+
+    disp.clear_buffer(); // We don't want to draw over the image
+
+    // Standard white text on transparent background using supplied font that supports Czech alphabet
+    let character_style = mono_font::MonoTextStyle::new(
+        &mono_font::iso_8859_2::FONT_6X12,
+        BinaryColor::On
+    );
+
+    /* Baseline: Top, so that we can simply specify the top-left corner as the position
+    Alignment: Simple left alignment
+    Yes, could've used the defaults or `with_baseline`. */
+    let text_style = text::TextStyleBuilder::new()
+        .baseline(text::Baseline::Top)
+        .alignment(text::Alignment::Left)
+        .build();
+
+    text::Text::with_text_style(
+        buffer.as_str(),
+        (0, 0).into(), // Top-left corner
+        character_style, // Text doesn't do into_styled because there are two "styles"
+        text_style,
+    ).draw(disp).unwrap();
+
+    trace!("Flushing");
+    disp.flush().unwrap();
+    trace!("Flushed");
 }
