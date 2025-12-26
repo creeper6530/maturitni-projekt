@@ -121,8 +121,6 @@ fn main() -> ! {
     );
     trace!("I²C initialized");
 
-    // ------------------------------------------------------------------------------------------------------------------------------------------------
-
     // This helper struct finishes configuring the I2C (most importantly with the display's address)
     // and provides a compatible interface for SSD1306 lib, that itself is generic over the I²C/SPI interface.
     let iface = ssd1306::I2CDisplayInterface::new(i2c);
@@ -132,6 +130,8 @@ fn main() -> ! {
     disp.init().unwrap(); // Automatically clears it as well; without that it would show grain as (V)RAM is random on powerup.
     disp.set_brightness(Brightness::BRIGHTEST).unwrap(); // XXX: Good to dim when working at night!
     trace!("Display initialized");
+
+    // ------------------------------------------------------------------------------------------------------------------------------------------------
 
     info!("Starting the stack jigglery-pokery");
 

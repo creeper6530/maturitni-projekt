@@ -148,7 +148,7 @@ where
     }
 
     pub fn peek_all(&self) -> &[T] {
-        return self.data.as_slice();
+        self.data.as_slice()
     }
 
     /// Clears the entire stack
@@ -160,10 +160,10 @@ where
     }
 
     pub fn len(&self) -> usize {
-        return self.data.len();
+        self.data.len()
     }
 
     pub fn is_empty(&self) -> bool {
-        return self.data.is_empty();
+        self.data.is_empty()
     }
 }
