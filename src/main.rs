@@ -9,38 +9,32 @@ const I2C_FREQ: hal::fugit::HertzU32 = hal::fugit::HertzU32::kHz(1000);
 
 use defmt::*;
 use defmt_rtt as _;
-use heapless::{String, format};
+use heapless::{
+    String,
+    format
+};
 use panic_probe as _;
 
-use rp2040_hal as hal;
-use hal::{
+use rp2040_hal::{
+    self as hal,
     pac,
 
     clocks::{Clock, init_clocks_and_plls},
     watchdog::Watchdog,
-    
     sio::Sio,
 };
-use cortex_m::asm;
 
 // Display imports
-use ssd1306::{Ssd1306, mode::BufferedGraphicsMode, prelude::*};
+use ssd1306::{
+    prelude::*,
+    Ssd1306,
+    mode::BufferedGraphicsMode,
+};
 use embedded_graphics::{
     prelude::*,
     pixelcolor::BinaryColor,
-
-    mono_font::{
-//        ascii::FONT_6X12,
-        iso_8859_2::FONT_6X12 as ISO_FONT_6X12,
-        MonoTextStyle
-    },
-    text::{
-        Baseline,
-        Alignment,
-        TextStyleBuilder,
-
-        Text,
-    },
+    mono_font,
+    text,
 };
 
 mod stack;
@@ -187,7 +181,7 @@ fn main() -> ! {
     hw_bkpt!();
     info!("All done, entering infinite WFI loop");
     loop {
-        asm::wfi();
+        cortex_m::asm::wfi();
     }
 }
 
@@ -203,17 +197,20 @@ where
     disp.clear_buffer(); // We don't want to draw over the image
 
     // Standard white text on transparent background using supplied font that supports Czech alphabet
-    let character_style = MonoTextStyle::new(&ISO_FONT_6X12, BinaryColor::On);
+    let character_style = mono_font::MonoTextStyle::new(
+        &mono_font::iso_8859_2::FONT_6X12,
+        BinaryColor::On
+    );
 
     /* Baseline: Top, so that we can simply specify the top-left corner as the position
     Alignment: Simple left alignment
     Yes, could've used the defaults or `with_baseline`. */
-    let text_style = TextStyleBuilder::new()
-        .baseline(Baseline::Top)
-        .alignment(Alignment::Left)
+    let text_style = text::TextStyleBuilder::new()
+        .baseline(text::Baseline::Top)
+        .alignment(text::Alignment::Left)
         .build();
 
-    Text::with_text_style(
+    text::Text::with_text_style(
         buffer.as_str(),
         (0, 0).into(), // Top-left corner
         character_style, // Text doesn't do into_styled because there are two "styles"
