@@ -9,10 +9,6 @@ const I2C_FREQ: hal::fugit::HertzU32 = hal::fugit::HertzU32::kHz(1000);
 
 use defmt::*;
 use defmt_rtt as _;
-use heapless::{
-    String,
-    format
-};
 use panic_probe as _;
 
 use rp2040_hal::{
@@ -22,6 +18,10 @@ use rp2040_hal::{
     clocks::{Clock, init_clocks_and_plls},
     watchdog::Watchdog,
     sio::Sio,
+};
+use heapless::{
+    String,
+    format
 };
 
 // Display imports
