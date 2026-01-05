@@ -125,6 +125,7 @@ impl<T> CustomStack<T>
     }
 }
 
+#[allow(dead_code)]
 impl<T> CustomStack<T>
 where
     T: Copy,
@@ -133,7 +134,6 @@ where
     /// If the stack does not have enough space, it returns an error.
     /// 
     /// The last element of the slice will be the topmost element of the stack.
-    #[allow(dead_code)]
     pub fn push_slice(&mut self, slice: &[T]) -> Result<(), ()> {
         if self.data.len() + slice.len() > MAX_STACK_SIZE {
             return Err(());
@@ -144,6 +144,7 @@ where
     }
 }
 
+#[allow(dead_code)]
 impl<T> CustomStack<T>
 where
     T: Copy + DefmtFormat,
