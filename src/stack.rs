@@ -9,7 +9,7 @@ const MAX_STACK_SIZE: usize = 256;
 
 // ------------------------------------------------------------------------------------------------------------------------------------------------
 
-#[derive(Debug, Clone, DefmtFormat)]
+#[derive(Debug, Clone)]
 pub struct CustomStack<T>
 {
     data: Vec<T, MAX_STACK_SIZE>
