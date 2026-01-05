@@ -128,7 +128,7 @@ impl<T> CustomStack<T>
 #[allow(dead_code)]
 impl<T> CustomStack<T>
 where
-    T: Copy,
+    T: Clone,
 {
     /// Pushes a slice of values onto the stack.
     /// If the stack does not have enough space, it returns an error.
@@ -147,7 +147,7 @@ where
 #[allow(dead_code)]
 impl<T> CustomStack<T>
 where
-    T: Copy + DefmtFormat,
+    T: DefmtFormat,
 {
     /// Debug function to print the entire stack using defmt.
     pub fn debug_print(&self) {
