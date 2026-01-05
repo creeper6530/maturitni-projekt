@@ -89,6 +89,21 @@ where
         Ok(())
     }
 
+    /// Pushes an owned array of values onto the stack.
+    /// The array MUST have a const size, otherwise use `push_slice` or push elements one by one.
+    /// If the stack does not have enough space, it returns an error.
+    /// 
+    /// The last element of the array will be the topmost element of the stack.
+    pub fn push_array<const N: usize>(&mut self, array: [T; N]) -> Result<(), ()> {
+        if self.data.len() + N > MAX_STACK_SIZE {
+            return Err(());
+        }
+
+        // SAFETY: We already checked that capacity is OK. Can't panic.
+        self.data.extend(array);
+        Ok(())
+    }
+
     /// Pops a value from the stack.
     /// If the stack is empty, it returns `None`.
     pub fn pop(&mut self) -> Option<T> {
