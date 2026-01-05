@@ -100,7 +100,8 @@ fn main() -> ! {
         // We can't get immutable borrow of stack here to debug it,
         // because the iterator still holds a mutable borrow until it's fully consumed.
         // Luckily we can peek at the stack through debugger watches.
-        //debug!("Stack now: {:?}", stack);
+
+        //stack.debug_print(); // error[E0502]: cannot borrow `stack` as immutable because it is also borrowed as mutable
     }
     unsafe { core::arch::asm!("bkpt"); }
     // The iterator will be fully consumed after the loop ends, releasing the mutable borrow on the stack.
