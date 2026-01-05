@@ -70,24 +70,24 @@ fn main() -> ! {
     unsafe { core::arch::asm!("bkpt"); }
     //stack.push_slice(&[1, 2, 3, 4, 5, 6]).unwrap();
     stack.push_array([4, 5, 6]).unwrap();
-    debug!("Stack: {:?}", stack.peek_all());
+    stack.debug_print();
 
     // Push another value
     unsafe { core::arch::asm!("bkpt"); }
     stack.push(7).unwrap();
-    debug!("Stack: {:?}", stack.peek_all());
+    stack.debug_print();
 
     // Peek at the top value
     unsafe { core::arch::asm!("bkpt"); }
     let top = stack.peek().unwrap();
     debug!("Top value is {}", top);
-    debug!("Stack: {:?}", stack.peek_all());
+    stack.debug_print();
 
     // Pop a value off the stack
     unsafe { core::arch::asm!("bkpt"); }
     let popped = stack.pop().unwrap();
     debug!("Popped value is {}", popped);
-    debug!("Stack: {:?}", stack.peek_all());
+    stack.debug_print();
 
     // Pop multiple values off the stack
     unsafe { core::arch::asm!("bkpt"); }
@@ -104,7 +104,7 @@ fn main() -> ! {
     }
     unsafe { core::arch::asm!("bkpt"); }
     // The iterator will be fully consumed after the loop ends, releasing the mutable borrow on the stack.
-    debug!("Stack: {:?}", stack.peek_all());
+    stack.debug_print();
 
     unsafe { core::arch::asm!("bkpt"); }
     if stack.is_empty() {
@@ -117,7 +117,7 @@ fn main() -> ! {
     unsafe { core::arch::asm!("bkpt"); }
     let top_slice = stack.multipeek(2).unwrap();
     debug!("Top 3 values as slice: {:?}", top_slice);
-    debug!("Stack: {:?}", stack.peek_all());
+    stack.debug_print();
 
     unsafe { core::arch::asm!("bkpt"); }
     info!("All done, entering infinite WFI loop");

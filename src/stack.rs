@@ -1,43 +1,4 @@
-// Imports for stuff to work
-#![allow(unused_imports)]
-use embedded_graphics::{
-    prelude::*,
-    pixelcolor::BinaryColor,
-
-    mono_font::{
-//        ascii::FONT_6X12,
-        iso_8859_2::FONT_6X12 as ISO_FONT_6X12,
-        MonoTextStyle,
-        MonoTextStyleBuilder
-    },
-    text::{
-        Baseline,
-        Text,
-    },
-
-    primitives::{
-        PrimitiveStyle,
-        PrimitiveStyleBuilder,
-        Rectangle,
-    },
-};
-use ssd1306::{
-    Ssd1306,
-    prelude::*,
-    mode::BufferedGraphicsMode,
-};
-
-// Imports for the actual code
-use heapless::{CapacityError, String, Vec};
-use core::{
-    prelude::v1::*, // I sincerely hope this is unnecessary, but who knows?
-    cell::RefCell, // For the `RefCell` type
-    cmp::min, // For the `min` function
-    ops::DerefMut, // For the `deref_mut` method
-    fmt::Write, // For the `write!` macro
-};
-
-// Debugging imports
+use heapless::Vec;
 use defmt::Format as DefmtFormat;
 
 // ------------------------------------------------------------------------------------------------------------------------------------------------
@@ -50,18 +11,12 @@ const MAX_STACK_SIZE: usize = 256;
 
 #[derive(Debug, Clone, DefmtFormat)]
 pub struct CustomStack<T>
-where
-    T: Copy, /* The `T` type parameter allows the stack to hold any type of data
-                that implements the `Copy` trait (which means they can be duplicated easily),
-                and that can be formatted. */
 {
     data: Vec<T, MAX_STACK_SIZE>
 }
 
 #[allow(dead_code)]
 impl<T> CustomStack<T>
-where
-    T: Copy,
 {
     /// Creates a new, empty stack.
     pub fn new() -> Self {
@@ -74,19 +29,6 @@ where
     /// If the stack is full, it returns an error with the value that could not be pushed.
     pub fn push(&mut self, value: T) -> Result<(), T> {
         self.data.push(value)
-    }
-
-    /// Pushes a slice of values onto the stack.
-    /// If the stack does not have enough space, it returns an error.
-    /// 
-    /// The last element of the slice will be the topmost element of the stack.
-    pub fn push_slice(&mut self, slice: &[T]) -> Result<(), ()> {
-        if self.data.len() + slice.len() > MAX_STACK_SIZE {
-            return Err(());
-        }
-
-        self.data.extend_from_slice(slice).expect("We already checked that capacity is OK!");
-        Ok(())
     }
 
     /// Pushes an owned array of values onto the stack.
@@ -180,5 +122,34 @@ where
 
     pub fn is_empty(&self) -> bool {
         self.data.is_empty()
+    }
+}
+
+impl<T> CustomStack<T>
+where
+    T: Copy,
+{
+    /// Pushes a slice of values onto the stack.
+    /// If the stack does not have enough space, it returns an error.
+    /// 
+    /// The last element of the slice will be the topmost element of the stack.
+    #[allow(dead_code)]
+    pub fn push_slice(&mut self, slice: &[T]) -> Result<(), ()> {
+        if self.data.len() + slice.len() > MAX_STACK_SIZE {
+            return Err(());
+        }
+
+        self.data.extend_from_slice(slice).expect("We already checked that capacity is OK!");
+        Ok(())
+    }
+}
+
+impl<T> CustomStack<T>
+where
+    T: Copy + DefmtFormat,
+{
+    /// Debug function to print the entire stack using defmt.
+    pub fn debug_print(&self) {
+        defmt::debug!("Stack contents: {:?}", self.data.as_slice());
     }
 }
