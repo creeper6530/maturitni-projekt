@@ -123,6 +123,6 @@ fn main() -> ! {
     unsafe { core::arch::asm!("bkpt"); }
     info!("All done, entering infinite WFI loop");
     loop {
-        cortex_m::asm::wfi();
+        unsafe { core::arch::asm!("wfi"); }
     }
 }
