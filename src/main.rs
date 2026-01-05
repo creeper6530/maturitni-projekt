@@ -69,7 +69,7 @@ fn main() -> ! {
     // Push some initial values onto the stack
     unsafe { core::arch::asm!("bkpt"); }
     //stack.push_slice(&[1, 2, 3, 4, 5, 6]).unwrap();
-    stack.push_array([4, 5, 6]).unwrap();
+    stack.push_array([1, 2, 3, 4, 5, 6]).unwrap();
     stack.debug_print();
 
     // Push another value
