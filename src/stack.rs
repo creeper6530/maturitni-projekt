@@ -33,12 +33,12 @@ impl<T> CustomStack<T>
 
     /// Pushes an owned array of values onto the stack.
     /// The array MUST have a const size, otherwise use `push_slice` or push elements one by one.
-    /// If the stack does not have enough space, it returns an error.
+    /// If the stack does not have enough space, it returns an error with the array that could not be pushed.
     /// 
     /// The last element of the array will be the topmost element of the stack.
-    pub fn push_array<const N: usize>(&mut self, array: [T; N]) -> Result<(), ()> {
+    pub fn push_array<const N: usize>(&mut self, array: [T; N]) -> Result<(), [T; N]> {
         if self.data.len() + N > MAX_STACK_SIZE {
-            return Err(());
+            return Err(array);
         }
 
         // SAFETY: We already checked that capacity is OK. Can't panic.
