@@ -18,10 +18,6 @@ panic-probe = { version = "1", features = ["print-defmt"] }
 rp2040-hal = { version="0.11", features=["rt", "critical-section-impl", "defmt", "rom-v2-intrinsics"] }
 rp2040-boot2 = "0.3"
 
-ssd1306 = "0.10"
-embedded-graphics = { version = "0.8", features = ["defmt"] }
-tinybmp = "0.6"
-
 # cargo build/run
 [profile.dev]
 codegen-units = 1
