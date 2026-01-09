@@ -2,7 +2,7 @@
 edition = "2024"
 name = "maturitni-projekt"
 version = "0.1.0"
-license = "MIT"
+license = "MIT OR Apache-2.0"
 
 [dependencies]
 cortex-m = "0.7"
