@@ -24,9 +24,6 @@ tinybmp = "0.6"
 # display-interface = { version = "0.5", features = ["defmt-03"], path = "D:\\Rust\\display-interface" }
 display-interface = { version = "0.5", features = ["defmt-03"] }
 
-[lints.clippy]
-needless_return = "warn"
-
 # cargo build/run
 [profile.dev]
 codegen-units = 256 # Edited for faster compilation

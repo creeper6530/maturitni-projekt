@@ -1,6 +1,3 @@
-//! Blinks the LED on a Pico board
-//!
-//! This will blink an LED attached to GP25, which is the pin the Pico uses for the on-board LED.
 #![no_std]
 #![no_main]
 
@@ -21,7 +18,10 @@ use rp2040_hal::{
     self as hal,
     pac,
 
-    clocks::init_clocks_and_plls,
+    clocks::{
+        init_clocks_and_plls,
+        Clock // Trait for method `freq()`
+    },
     sio::Sio,
     watchdog::Watchdog,
 };
@@ -32,7 +32,6 @@ use tinybmp::Bmp;
 
 // Trait imports (for methods)
 use core::ops::DerefMut;
-use hal::clocks::Clock;
 
 // Custom module imports
 mod stack;

@@ -183,7 +183,6 @@ where
 
 // ------------------------------------------------------------------------------------------------------------------------------------------------
 
-/// All getters of this struct copy the data, not give a reference to it.
 #[allow(dead_code)]
 pub struct CustomStack<'a, T, DI, SIZE>
 where // We dropped the Copy bound in commit b570971032f7a7de6d69c37402bddd0ee0cb40b2 and Debug/Display in commit right after
@@ -219,15 +218,14 @@ where
     /// Pushes multiple values onto the stack from any iterator.
     /// If the stack does not have enough space for all values, it panics.
     /// 
+    /// For owned arrays with const size, prefer `push_array()`.
     /// For slices that are composed of Clone types, prefer `push_slice()`.
     /// For exact-size iterators, prefer `push_exact_iterator()` that can't panic.
     /// 
     /// If `check_hint` is true, and the iterator has an upper size hint,
-    /// and the hint indicates that pushing all elements would overflow the stack, 
-    /// the method checks if the upper size hint would overflow the stack
-    /// and returns an error instead of possibly panicking.
-    /// 
-    /// E.g. for a Vec, setting `check_hint` to true is recommended, because the size hint is exact.
+    /// and the hint indicates that pushing all elements would overflow the stack,
+    /// and the upper size hint would overflow the stack,
+    /// the method returns an error instead of (possibly) panicking.
     pub fn push_iterator(&mut self, iter: impl Iterator<Item = T>, check_hint: bool) -> Result<(), CustomError> {
         // Short-circuiting is desirable here
         if check_hint // If the caller wants us to check the size hint
@@ -244,6 +242,7 @@ where
     /// Pushes multiple values onto the stack from an exact-size iterator.
     /// If the stack does not have enough space for all values, it returns an error.
     /// 
+    /// For owned arrays with const size, prefer `push_array()`.
     /// For slices that are composed of Clone types, prefer `push_slice()`.
     /// For general iterators, use `push_iterator()` if the possibility of panic does not scare you.
     pub fn push_exact_iterator(&mut self, iter: impl ExactSizeIterator<Item = T>) -> Result<(), CustomError> {
@@ -258,6 +257,22 @@ where
         Ok(())
     }
 
+    /// Pushes an owned array of values onto the stack.
+    /// The array MUST have a const size, otherwise use an iterator.
+    /// If the stack does not have enough space,
+    /// it returns an error with the array that could not be pushed as second element of the tuple.
+    /// 
+    /// The last element of the array will be the topmost element of the stack.
+    pub fn push_array<const N: usize>(&mut self, array: [T; N]) -> Result<(), (CustomError, [T; N])> {
+        if self.data.len() + N > MAX_STACK_SIZE {
+            return Err((CE::CapacityError, array));
+        }
+
+        // SAFETY: We already checked that capacity is OK. Can't panic.
+        self.data.extend(array);
+        Ok(())
+    }
+
     /// Pops a value from the stack.
     /// If the stack is empty, it returns `None`.
     pub fn pop(&mut self) -> Option<T> {
@@ -266,12 +281,12 @@ where
 
     /// Returns a double-ended iterator that yields up to `n` popped elements from the stack.
     /// Each `.next()` call on the iterator pops one, but the rest are still popped even if the iterator is dropped before being fully consumed.
+    /// Note that the returned iterator still keeps a mutable borrow on the stack until it is fully consumed or dropped.
     /// 
     /// If the stack is empty, it returns `None`. If you try to pop more elements than there are, it pops all.
     /// 
-    /// Note that the returned iterator still keeps a mutable borrow on the stack until it is fully consumed or dropped.
-    /// 
-    /// The last item yielded by the iterator is the topmost element of the stack.
+    /// The topmost element of the stack is the **FIRST** item yielded by the iterator,
+    /// unlike `multipeek()`.
     pub fn multipop(&mut self, n: u8) -> Option<impl DoubleEndedIterator<Item = T>> {
     // See https://doc.rust-lang.org/stable/book/ch10-02-traits.html#returning-types-that-implement-traits for explanation of what we're returning here.
         if self.data.is_empty() {
@@ -281,7 +296,10 @@ where
         // The caller may not need to collect it into a Vec, so we return the iterator directly.
         // If the iterator is dropped before it's fully consumed, the data is still removed from the stack.
         // Thanks to saturating_sub, we don't have to check if n > len here.
-        Some(self.data.drain(self.data.len().saturating_sub(n as usize)..))
+        Some(
+            self.data.drain(self.data.len().saturating_sub(n as usize)..)
+                .rev()
+        )
     }
 
     /// Returns the last value pushed onto the stack without removing it.
@@ -315,7 +333,6 @@ where
     /// ## Warning
     /// This method will cause all data in the stack to be lost.
     pub fn clear(&mut self) {
-        //warn!("Clearing the stack, all data will be lost.");
         self.data.clear();
     }
 

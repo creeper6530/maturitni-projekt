@@ -127,7 +127,8 @@ where
         "b alt" | "bkpt alt" | "breakpoint alt" => {
             debug!("Alternative breakpoint requested by user (command 'breakpoint alt')");
             // Will cause an exception if no debugger is attached
-            cortex_m::asm::bkpt(); // Inline breakpoint instruction
+            // SAFETY: We know this instruction does not meddle with any registers, and that this is valid assembly, so it has to be safe.
+            unsafe { core::arch::asm!("bkpt"); } // Inline breakpoint instruction
         },
 
         "boot usb" | "usb boot" | "usb" => {
