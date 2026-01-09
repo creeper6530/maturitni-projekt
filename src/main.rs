@@ -1,10 +1,6 @@
 #![no_std]
 #![no_main]
 
-// We currently don't write any unsafe functions, but if we did,
-// this would ensure that we mark all unsafe operations within them explicitly.
-#![deny(unsafe_op_in_unsafe_fn)]
-
 // 1 MHz, the maximum speed for I²C on the RP2040 (so-called Fast Mode Plus; datasheet 4.3.3), and the SSD1306 can handle it well
 const I2C_FREQ: hal::fugit::HertzU32 = hal::fugit::HertzU32::kHz(1000);
 
@@ -29,9 +25,6 @@ use core::cell::RefCell;
 use embedded_graphics::{image::Image, prelude::*};
 use ssd1306::{Ssd1306, mode::BufferedGraphicsMode, prelude::*};
 use tinybmp::Bmp;
-
-// Trait imports (for methods)
-use core::ops::DerefMut;
 
 // Custom module imports
 mod stack;
@@ -99,7 +92,7 @@ fn main() -> ! {
 
     let i2c = hal::I2C::i2c0(
         peri.I2C0,
-        pins.gpio8.reconfigure(),
+        pins.gpio8.reconfigure(), // The stuff we're reconfiguring *into* is inferred from the context
         pins.gpio9.reconfigure(),
         I2C_FREQ,
         &mut peri.RESETS,
@@ -117,7 +110,7 @@ fn main() -> ! {
     // Let me ask one question: Why the hell can't this be as straightforward as I²C is?
     let uart = hal::uart::UartPeripheral::new(
         peri.UART0,
-        (pins.gpio0.into_function(), pins.gpio1.into_function()), // Luckily the function itself is inferred, so we don't need to specify it explicitly
+        (pins.gpio0.into_function(), pins.gpio1.into_function()), // Luckily the function itself is inferred too, so we don't need to specify it explicitly
         &mut peri.RESETS
     )
     .enable(hal::uart::UartConfig::default(), clocks.peripheral_clock.freq()) // Default is a sane 115200 8N1
@@ -432,6 +425,9 @@ fn main() -> ! {
 
                 // See https://en.wikipedia.org/wiki/ANSI_escape_code?useskin=vector#Terminal_input_sequences for list of (common) escape sequences
                 match buf {
+                    [b'\x00', ..] => { // Just an escape character
+                        info!("Escape character received over UART. Possibly Ctrl-[ or Esc key?");
+                    },
                     [b'[', b'A', ..] => { // Up arrow
                         info!("Up arrow pressed");
                     },
@@ -541,7 +537,11 @@ where
         &bmp,
         (0, 0).into(), // Fullscreen
     );
-    if let Err(e) = img.draw(disp.deref_mut()) {
+    if let Err(e) = img.draw(&mut (*disp)) {
+    // The dereference gives us the inner Ssd1306 struct from the RefCell,
+    // and then we borrow it mutably to draw on it.
+    // We could also do `disp.deref_mut()` instead of `&mut (*disp)`.
+
         // We can't use `defmt::panic!()` here because DisplayError does not implement `defmt::Format`
         core::panic!("Failed to draw image on display: {:?}", e);
     };
@@ -567,7 +567,7 @@ pub fn disp_error<DI, SIZE> (
         &bmp,
         (117, 0).into(), // Image is 10x10, we put it in the top-right corner
     );
-    if let Err(e) = img.draw(disp.deref_mut()) {
+    if let Err(e) = img.draw(&mut (*disp)) {
         core::panic!("Failed to draw image on display: {:?}", e);
     };
     if let Err(e) = disp.flush() {

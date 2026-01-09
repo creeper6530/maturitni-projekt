@@ -30,10 +30,8 @@ use ssd1306::{
 // Imports for the actual code
 use heapless::{Vec, String};
 use core::{
-    prelude::v1::*, // I sincerely hope this is unnecessary, but who knows?
     cell::RefCell, // For the `RefCell` type
     cmp::min, // For the `min` function
-    ops::DerefMut, // For the `deref_mut` method
     fmt::Write, // For the `write!` macro
 };
 
@@ -52,12 +50,15 @@ const PIXELS_REMOVED: u8 = 2;
 const TEXT_BUFFER_SIZE: usize = 32;
 /// Message to fill the textbox with when building a debug textbox
 const DEBUG_TEXTBOX_MESSAGE: &'static str = "DEBUG TEXTBOX";
-/** Number of pixels to offset the textbox from the bottom of the display by
+/** Number of pixels to offset the textbox from the bottom of the display by.
 
 This constant shall be determined by the programmer,
 as we won't know the font size at compile time,
 and going off of defaults beats the point of the ability to change the defaults. */
-const TEXTBOX_OFFSET: u8 = 4;
+const TEXTBOX_OFFSET: u8 = 3;
+/// Determines the height of the cursor in pixels.
+/// Disregarded if `TEXTBOX_CURSOR` is false.
+const CURSOR_HEIGHT: u8 = 3;
 /** Whether to draw a cursor under the text of the textbox
 
 May only be true of we give it the space with the TEXTBOX_OFFSET const
@@ -66,9 +67,6 @@ const TEXTBOX_CURSOR: bool = true;
 
 // Evaluated at compile time to ensure that the constants are valid
 const fn _check_consts() {
-    if TEXTBOX_CURSOR && TEXTBOX_OFFSET < 1 {
-        core::panic!("TEXTBOX_CURSOR can only be true if TEXTBOX_OFFSET is larger than 1");
-    }
     if TEXT_BUFFER_SIZE < DEBUG_TEXTBOX_MESSAGE.len() {
         core::panic!("TEXT_BUFFER_SIZE is too small to hold DEBUG_TEXTBOX_MESSAGE");
     }
@@ -235,46 +233,52 @@ where
     SIZE: DisplaySize,
 {
     pub fn draw(&self, flush: bool) -> Result<(), CustomError> {
-
-        let mut display_refmut = self.display_refcell.borrow_mut();
-        let display_ref = display_refmut.deref_mut();
-
         let text_height = self.character_style.font.character_size.height as u8 - PIXELS_REMOVED;
         let textbox_height = text_height + TEXTBOX_OFFSET; // The height of the whole textbox is the height of one line of text plus the offset
 
-        Rectangle::with_corners(
+        let clear_rect = Rectangle::with_corners(
             (0, self.disp_dimensions.height as i32 - 1).into(), // Bottom right corner
             (
                 self.disp_dimensions.width as i32 - 1,
                 (self.disp_dimensions.height - textbox_height) as i32
             ).into() // Top left corner
         )
-        .into_styled(self.primitives_alternate_style)
-        .draw(display_ref)?;
+        .into_styled(self.primitives_alternate_style);
 
-        Text::with_baseline(
+        let text = Text::with_baseline(
             self.text.as_str(),
             (0, (self.disp_dimensions.height - textbox_height) as i32).into(), // Top left corner
             self.character_style,
             Baseline::Top
-        )
-        .draw(display_ref)?;
+        );
 
-        if TEXTBOX_CURSOR {
-            let cursor_height = TEXTBOX_OFFSET - 1;
-
-            // Draw the cursor under the text
-            Rectangle::new(
+        // We can't leave the cursor variable possibly uninitialised, so we use Option
+        let cursor: Option<_> = if TEXTBOX_CURSOR {
+            // Draw the cursor just below the text
+            Some(Rectangle::new(
                 (
-                    self.text.chars().count() as i32 * self.character_style.font.character_size.width as i32 + 1, 
-                    (self.disp_dimensions.height - 1 - cursor_height) as i32
+                    self.text.chars().count() as i32 * self.character_style.font.character_size.width as i32, 
+                    (self.disp_dimensions.height - CURSOR_HEIGHT) as i32
                 ).into(),
-                (self.character_style.font.character_size.width, cursor_height as u32).into()
+                (
+                    self.character_style.font.character_size.width,
+                    (CURSOR_HEIGHT) as u32
+                ).into()
             )
-            .into_styled(self.primitives_style)
+            .into_styled(self.primitives_style))
+        } else { None };
+
+        // We defer the borrow of the RefCell until the last possible moment to minimize the critical section
+        let mut display_refmut = self.display_refcell.borrow_mut();
+        let display_ref = &mut (*display_refmut); // Unpack the RefMut to get the inner struct, then get a mutable reference to it
+        // In method calls, the compiler does this for us, but not so when we need to pass a reference to `draw()`
+
+        clear_rect.draw(display_ref)?;
+        text.draw(display_ref)?;
+        if TEXTBOX_CURSOR {
+            cursor.expect("cursor should be Some if TEXTBOX_CURSOR is true!")
             .draw(display_ref)?;
         }
-
         if flush { display_ref.flush()?; };
 
         Ok(())
@@ -282,10 +286,9 @@ where
 
     pub fn append_str(&mut self, string: &str) -> Result<(), CustomError> {
         // We do not check for buffer overflow, as `push_str` will do that for us
-        // `heapless` v0.9 changed the error type of `push` and `push_str` from `()` to `CapacityError`
 
-        // We don't need e.into() for the zero-sized CapacityError,
-        // and like this it's clearer than Ok(push_str(...)?)
+        // We don't need `map_err(|_| e.into())` for the zero-sized `CapacityError`,
+        // and like this it's clearer than `Ok(push_str(...)?)`
         self.text.push_str(string).map_err(|_| CE::CapacityError)
     }
 
@@ -322,7 +325,8 @@ where
         Ok(())
     }
 
-    // core::str::pattern::Pattern trait like in str::contains is unstable, so we implement the char and str versions separately.
+    // core::str::pattern::Pattern trait like in str::contains is unstable,
+    // so we implement the char and str versions separately.
     // Too much hassle to implement a custom trait or to use nightly just for this.
     // For more info, see: https://github.com/rust-lang/rust/issues/27721
     pub fn contains(&self, pat: char) -> bool {

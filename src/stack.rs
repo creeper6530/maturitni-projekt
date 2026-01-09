@@ -30,10 +30,8 @@ use ssd1306::{
 // Imports for the actual code
 use heapless::{Vec, String};
 use core::{
-    prelude::v1::*, // I sincerely hope this is unnecessary, but who knows?
     cell::RefCell, // For the `RefCell` type
     cmp::min, // For the `min` function
-    ops::DerefMut, // For the `deref_mut` method
     fmt::Write, // For the `write!` macro
 };
 
@@ -54,6 +52,15 @@ const MAX_STACK_SIZE: usize = 256;
 so with this constant we basically cut off the top `n` pixels. */
 const PIXELS_REMOVED: u8 = 2;
 /// Size of String-s used for buffering text during writes, and for the textbox
+/* We do an engineer's estimate that 32 bytes is enough for one line,
+since we can't compute it dynamically from font size (which isn't constant).
+It's true that we don't wanna waste memory, but better safe than sorry.
+At the smallest inbuilt font size, we can fit exactly 32 characters in a line,
+so that's why we use 32 here.
+
+If we had used i128-s (and didn't do fixed-point arithmetics with them),
+we'd've needed at most 40 bytes (the lenght of i128::MIN in decimal representation),
+but that'd long overflow the display, so who cares? :D */
 const TEXT_BUFFER_SIZE: usize = 32;
 // ------------------------------------------------------------------------------------------------------------------------------------------------
 
@@ -371,25 +378,25 @@ where
     /// Draws the stack on the display.
     /// Can return DisplayError or FormatError.
     pub fn draw(&self, flush: bool) -> Result<(), CustomError> {
-
-        // We're going to operate on the display for the entire method, so no need to wrap it in a scope
-        // It will get automatically dropped at the end of the method
-        let mut display_refmut = self.display_refcell.borrow_mut();
-        let display_ref = display_refmut.deref_mut(); // Get a mutable reference to the display itself, no RefMut
-
         // A convenience variable
         let text_height = (self.character_style.font.character_size.height - PIXELS_REMOVED as u32) as u8;
         
         // Clear the area where the stack will be drawn
-        Rectangle::new(
+        let clear_rect = Rectangle::new(
             (0, 0).into(),
             (self.disp_dimensions.width as u32, (text_height * ((self.disp_dimensions.height / text_height) - 1)) as u32).into() // We always clear the entire area, e.g. when popping elements
         )
-        .into_styled(self.primitives_style)
-        .draw(display_ref)?;
+        .into_styled(self.primitives_style);
 
+        // If the stack is empty, we don't need to draw anything so we expediently return
         if self.data.is_empty() {
-            // If the stack is empty, we don't need to draw anything so we expediently return
+            // We only borrow the RefCell at the end and do everything in bulk to minimize the critical section
+            let mut display_refmut = self.display_refcell.borrow_mut();
+            // Unpack the RefMut to get the inner struct, then get a mutable reference to it
+            // In method calls, the compiler does this for us, but not so when we need to pass a reference to `draw()`
+            let display_ref = &mut (*display_refmut);
+
+            clear_rect.draw(display_ref)?;
             if flush { display_ref.flush()?; };
             return Ok(());
         }
@@ -407,20 +414,19 @@ where
 
         let text_vec = self.multipeek(num_lines).expect("We just checked the Vec is empty!");
 
-        /* We do an engineer's estimate that 32 bytes is enough for one line,
-        since we can't compute it dynamically from font size.
-        It's true that we don't wanna waste memory, but better safe than sorry.
-        At the smallest inbuilt font size, we can fit exactly 32 characters in a line,
-        so that's why we use 32 here.
+        // Borrow the display RefCell at the end, to minimize the critical section
+        // It would be a giant lifetime PITA to try and push the Text-s into a Vec and then draw them later, tho.
+        let mut display_refmut = self.display_refcell.borrow_mut();
+        // Get a mutable reference to the display itself, unpacking it from the RefMut
+        // In method calls, the compiler does this for us, but not so when we need to pass a reference to `draw()`
+        let display_ref = &mut (*display_refmut);
+        
+        clear_rect.draw(display_ref)?;
 
-        If we had used i128-s (and didn't do fixed-point arithmetics with them),
-        we'd've needed at most 40 bytes (the lenght of i128::MIN in decimal representation),
-        but that'd long overflow the display, so who cares? :D */
         let mut buf = String::<TEXT_BUFFER_SIZE>::new();
 
         for i in (0..num_lines).rev() {
             let i_usize = i as usize; // Convert to usize for indexing
-            buf.clear();
 
             core::write!(&mut buf, "{}", text_vec[i_usize])?;
             let text = buf.as_str();
@@ -432,6 +438,8 @@ where
                 Baseline::Top
             )
             .draw(display_ref)?;
+
+            buf.clear();
         }
 
         if flush { display_ref.flush()?; };
