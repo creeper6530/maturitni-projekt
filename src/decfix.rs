@@ -13,11 +13,9 @@ use CustomError as CE; // Short alias for easier use
 const DEFAULT_EXPONENT: i8 = -9;
 const PARSING_BUFFER_SIZE: usize = 16; // Buffer size for padding fractional parts when parsing strings
 
-/// A fixed-point decimal number with a variable exponent.
-/// Has basic arithmetic operations implemented, as well as parsing from string and formatting to string.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, DefmtFormat)]
 pub struct DecimalFixed {
-    value: i64, // The actual value is value * 10^exponent
+    value: i64, // The actual, logical value is (value * 10^exponent)
     exponent: i8,
 }
 
@@ -40,13 +38,12 @@ impl Display for DecimalFixed {
                 {:0>width$} - Format the second positional argument (empty string) Display style,
                     with padding character '0' = a zero,
                     right-aligned with minimum width of the `width` variable (self.exponent).
-                    └─> Repeats a zero `width` times
-                
-                It may be tempting to use 10.pow(self.exponent), but that would add a '1' between the numbers and the zeroes, which we don't want.
-                *annoyed sigh* Ask me how I know. */
+                    └─> Repeats a zero `width` times */
             },
-            Ordering::Less => 'exit_match: { // Declaring a labelled block with the label 'exit_match
-                // Equal and Greater cases add their own negative signs
+            Ordering::Less => 'exit_match: { // Declaring a labelled block with the label 'exit_match,
+                                             // so that we can jump to its end later.
+                                             // Imagine it as a GOTO, but the label is at the start, not end.
+                // Equal and Greater cases add their own negative signs, since we write the (signed) value at the beginning.
                 if self.value.is_negative() {
                     write!(f, "-")?;
                 }
@@ -76,40 +73,6 @@ impl Display for DecimalFixed {
     }
 }
 
-impl FromStr for DecimalFixed {
-    type Err = CustomError;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s.find('.') {
-            Some(dot_index) => {
-                let (whole_part_str, fractional_part_str) = s.split_at(dot_index);
-                let fractional_part_str = &fractional_part_str[1..]; // Skip the dot
-
-                let whole_part = whole_part_str.parse::<i64>()?;
-                let fractional_part: i64 = if fractional_part_str.is_empty() {
-                    0
-                } else {
-                    fractional_part_str.parse()?
-                };
-                let exponent = -(fractional_part_str.len() as i8);
-
-                let mut value = whole_part.checked_mul(
-                    10_i64.pow(-exponent as u32)
-                ).ok_or(CE::MathOverflow)?;
-
-                value = value.checked_add(
-                    fractional_part
-                ).ok_or(CE::MathOverflow)?;
-
-                Ok( DecimalFixed { value, exponent } )
-            }
-            None => {
-                Ok( DecimalFixed { value: s.parse::<i64>()? , exponent: 0 } )
-            }
-        }
-    }
-}
-
 impl Default for DecimalFixed {
     fn default() -> Self {
         Self { value: 0, exponent: DEFAULT_EXPONENT }
@@ -121,6 +84,7 @@ impl DecimalFixed {
     /// This function scales your input value accordingly.
     /// 
     /// Pass None as exponent to use the default exponent defined by a const.
+    /// Use new_prescaled() if you already have the scaled value.
     pub fn new(value: i64, exponent: Option<i8>) -> Result<Self, CustomError> {
         let exponent = exponent.unwrap_or(DEFAULT_EXPONENT);
         
@@ -146,7 +110,7 @@ impl DecimalFixed {
     }
 
     /// Creates a new DecimalFixed with the given value and exponent, without any scaling.
-    /// Please ensure that the value you provide is already scaled correctly.
+    /// Please ensure that the value you provide is already scaled correctly, otherwise, use new().
     pub fn new_prescaled(value: i64, exponent: i8) -> Self {
         Self { value, exponent }
     }
@@ -154,14 +118,12 @@ impl DecimalFixed {
     /// Parses a string into a DecimalFixed with the exponent you provide,
     /// or the default exponent specified in a const if you pass None.
     /// If the string has a fractional part that isn't the correct size, it will be truncated/padded to fit the exponent.
-    /// 
-    /// If you want to parse a string and let the exponent adjust dynamically to your input, use `str::parse::<DecimalFixed>()` instead.
     pub fn parse_static_exp(s: &str, exp: Option<i8>) -> Result<Self, CustomError> {
         let exp = exp.unwrap_or(DEFAULT_EXPONENT);
+        let minus_exp = -exp as usize;
 
         if exp >= 0 { return Err(CE::Unimplemented) }; // TODO: Handle this case if needed
         if s.is_empty() { return Err( CE::BadInput ) };
-        let minus_exp = -exp as usize;
 
         let mut iter = s.splitn(2, '.'); // Split into at most two parts, at the first dot
 

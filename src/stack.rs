@@ -1,5 +1,4 @@
 // Imports for stuff to work
-#![allow(unused_imports)]
 use embedded_graphics::{
     prelude::*,
     pixelcolor::BinaryColor,
@@ -7,8 +6,7 @@ use embedded_graphics::{
     mono_font::{
 //        ascii::FONT_6X12,
         iso_8859_2::FONT_6X12 as ISO_FONT_6X12,
-        MonoTextStyle,
-        MonoTextStyleBuilder
+        MonoTextStyle
     },
     text::{
         Baseline,

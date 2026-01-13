@@ -1,5 +1,4 @@
 // Imports for stuff to work
-#![allow(unused_imports)]
 use embedded_graphics::{
     prelude::*,
     pixelcolor::BinaryColor,
@@ -7,8 +6,7 @@ use embedded_graphics::{
     mono_font::{
 //        ascii::FONT_6X12,
         iso_8859_2::FONT_6X12 as ISO_FONT_6X12,
-        MonoTextStyle,
-        MonoTextStyleBuilder
+        MonoTextStyle
     },
     text::{
         Baseline,
@@ -28,12 +26,8 @@ use ssd1306::{
 };
 
 // Imports for the actual code
-use heapless::{Vec, String};
-use core::{
-    cell::RefCell, // For the `RefCell` type
-    cmp::min, // For the `min` function
-    fmt::Write, // For the `write!` macro
-};
+use heapless::String;
+use core::cell::RefCell; // For the `RefCell` type
 
 use crate::custom_error::CustomError; // Because we already have the `mod` in `main.rs`
 use CustomError as CE; // Shorter alias
