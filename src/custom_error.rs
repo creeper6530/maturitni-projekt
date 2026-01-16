@@ -9,7 +9,7 @@ use rp2040_hal::uart::ReadErrorType;
 // Type aliases to reduce verbosity in the From impls
 // As a (self-imposed) rule, we shall not use these in fuction signatures
 // or trait impls, only inside function bodies.
-type CE = CustomError;
+pub type CE = CustomError; // Public, so that it can be used elsewhere
 type IEK = IntErrorKind;
 type IEKC = IntErrorKindClone;
 type DiE = DisplayError;

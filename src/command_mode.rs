@@ -8,10 +8,13 @@ use tinybmp::Bmp;
 use core::cell::RefCell;
 use core::ops::DerefMut;
 
+// Because we already have the `mod` in `main.rs`
 use crate::textbox::CustomTextbox;
 use crate::stack::CustomStack;
-use crate::custom_error::CustomError;
-use CustomError as CE; // Shorter alias
+use crate::custom_error::{
+    CustomError,
+    CE // Short type alias
+};
 
 /// # List of commands:
 /// 

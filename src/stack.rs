@@ -36,8 +36,10 @@ use core::{
 // Possibly gate this behind a defmt feature flag if we move this into a library crate
 use defmt::trace; // For logging in `draw()` (nowhere else)
 
-use crate::custom_error::CustomError; // Because we already have the `mod` in `main.rs`
-use CustomError as CE; // Shorter alias
+use crate::custom_error::{ // Because we already have the `mod` in `main.rs`
+    CustomError,
+    CE // Short type alias
+};
 
 // ------------------------------------------------------------------------------------------------------------------------------------------------
 

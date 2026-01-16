@@ -29,8 +29,10 @@ use ssd1306::{
 use heapless::String;
 use core::cell::RefCell; // For the `RefCell` type
 
-use crate::custom_error::CustomError; // Because we already have the `mod` in `main.rs`
-use CustomError as CE; // Shorter alias
+use crate::custom_error::{ // Because we already have the `mod` in `main.rs`
+    CustomError,
+    CE // Short type alias
+};
 
 // ------------------------------------------------------------------------------------------------------------------------------------------------
 

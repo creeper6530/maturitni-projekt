@@ -36,7 +36,7 @@ use decfix::DecimalFixed;
 mod custom_error;
 use custom_error::{
     CustomError, // Never use `CustomError::*`, it could cause unobvious bugs!
-    CustomError as CE,
+    CE, // Using the type alias from `custom_error.rs`
     IntErrorKindClone,
 };
 mod command_mode;
@@ -312,7 +312,7 @@ fn main() -> ! {
                 let c: DecimalFixed = match (a_res, b_res) {
                     (Some(a), Some(b)) => {
                         match char_buf {
-                            '+' => match a.addition(b) {
+                            '+' => match a + b {
                                 Ok(c) => c,
                                 Err(e) => {
                                     error!("Error in addition: {:?}", e);
@@ -323,7 +323,7 @@ fn main() -> ! {
                                     continue 'main;
                                 }
                             },
-                            '-' => match a.subtract(b) {
+                            '-' => match a - b {
                                 Ok(c) => c,
                                 Err(e) => {
                                     error!("Error in subtraction: {:?}", e);
@@ -335,7 +335,7 @@ fn main() -> ! {
                                 }
                             },
                             '*' => {
-                                match a.multiply(b) {
+                                match a * b {
                                     Ok(c) => c,
                                     Err(e) => {
                                         error!("Error in multiplication: {:?}", e);
@@ -348,7 +348,7 @@ fn main() -> ! {
                                 }
                             }
                             '/' => {
-                                match a.divide(b) {
+                                match a / b {
                                     Ok(c) => c,
                                     Err(CE::BadInput) => {
                                         error!("Division by zero");
@@ -589,7 +589,7 @@ where
     let txbx_data = textbox.get_text_str();
     if txbx_data.is_empty() { return Err(CE::BadInput); };
     
-    let num = DecimalFixed::parse_static_exp(txbx_data, None)?; // Use default exponent by passing None
+    let num = DecimalFixed::parse_str(txbx_data, None)?; // Use default exponent by passing None
     match stack.push(num) {
         Ok(()) => {},
         Err((e, t)) => {
