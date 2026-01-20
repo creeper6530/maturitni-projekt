@@ -7,7 +7,7 @@ use heapless::CapacityError;
 use rp2040_hal::uart::ReadErrorType;
 
 // Type aliases to reduce verbosity in the From impls
-// As a (self-imposed) rule, we shall not use these in fuction signatures
+// As a (self-imposed, unnecessary) rule, we shall not use these in fuction signatures
 // or trait impls, only inside function bodies.
 pub type CE = CustomError; // Public, so that it can be used elsewhere
 type IEK = IntErrorKind;
@@ -17,9 +17,6 @@ type DiEC = DisplayErrorClone;
 type RET = ReadErrorType;
 type RETC = ReadErrorTypeClone;
 
-// If you're gonna move this to a library crate later,
-// consider gating defmt behind a feature flag to avoid a hard dependency on it.
-// Probably no need to gate core stuff nor heapless/rp2040-hal/display-interface dependencies.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, DefmtFormat, Default)]
 #[non_exhaustive] // So that we can add more error types later without breaking compatibility
 pub enum CustomError {
@@ -41,13 +38,7 @@ pub enum CustomError {
 
     /// A miscellaneous error that doesn't fit in any other variant.
     /// Use the OtherString variant if you want to provide more context.
-    #[default] Other, // We have to mark a default variant by this attribute for the Default derive
-    /// A miscellaneous error that doesn't fit in any other variant, with a string for more context.
-    /// We restrict to 'static str (string literals and other comptime) to avoid lifetime issues.
-    /// 
-    /// If you're crazy, you could use alloc::String::shrink_to_fit and ::leak to get a 'static str at runtime.
-    /// (Provided you have the alloc crate available, of course.)
-    OtherStr(&'static str)
+    #[default] Other // We have to mark a default variant by this attribute for the Default derive
 }
 
 // Because IntErrorKind doesn't implement defmt::Format.
@@ -159,21 +150,5 @@ impl From<ReadErrorType> for CustomError {
 impl From<()> for CustomError {
     fn from(_: ()) -> Self {
         CE::Other
-    }
-}
-
-/// We restrict to 'static str (string literals and other comptime) to avoid lifetime issues.
-/// 
-/// For example, if we generated a non-'static str at runtime,
-/// and then try to convert it into CustomError that we'd return from a function,
-/// we'd have a dangling reference because the pointed-to str would go out of scope
-/// at the end of the function.
-/// 
-/// The alternative would be to use String, but that would bar us from deriving Copy.
-/// If you're crazy, you could use alloc::String::shrink_to_fit and ::leak to get a 'static str at runtime.
-/// (Provided you have the alloc crate available, of course.
-impl From<&'static str> for CustomError {
-    fn from(value: &'static str) -> Self {
-        CE::OtherStr(value)
     }
 }
