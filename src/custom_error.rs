@@ -69,6 +69,7 @@ pub enum DisplayErrorClone {
 }
 
 // Because ReadErrorType doesn't implement Clone, Copy, PartialEq nor Eq. (It should implement defmt::Format though.)
+// Similarly, I've made a PR that waits for merge: https://github.com/rp-rs/rp-hal/pull/980
 #[derive(Debug, Clone, Copy, PartialEq, Eq, DefmtFormat)]
 pub enum ReadErrorTypeClone {
     Overrun,

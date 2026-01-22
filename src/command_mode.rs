@@ -53,14 +53,16 @@ where
     textbox.clear();
     textbox.draw(true)?;
 
-    { // We limit the scope of the mutable borrow, so that it doesn't panic when display is dropped.
+    { // We limit the scope of the mutable borrow to limit the lifetime of the RefMut and prevent panicking upon double-borrow
         let mut disp = disp_refcell.borrow_mut();
         disp.set_invert(true)?;
     }   
 
     let mut buf: [u8; 1] = [0];
-    let mut char_buf: char; // Uninitialised because we don't read it before it's first written to, but we don't need constant stack allocations.
-    loop {
+    let mut char_buf: char; // We declare it uninitialised mutable here to save on repeated stack allocations (as you should with buffers used in a loop)
+
+    // The label is unnecessary, just for clarity
+    'read_loop: loop {
         if let Err(e) = uart_rx.read_full_blocking(&mut buf) {
             error!("Failed to read from UART: {:?}", e);
             if let hal::uart::ReadErrorType::Break = e {
@@ -81,13 +83,13 @@ where
                 }
                 return Err(CE::Cancelled);
             },
-            '\r' | '\n' => break, // Enter key
+            '\r' | '\n' => break 'read_loop, // Enter key - breaks out of the reading loop
             '\x08' | '\x7F' => { // Backspace
                 trace!("Backspace character received in command mode: (0x{:X})", buf[0]);
 
                 if textbox.is_empty() {
                     info!("Ignoring backspace on empty textbox in command mode.");
-                    continue; // Diverging, does not continue forwards
+                    continue 'read_loop; // Diverging, does not continue forwards
                 };
                 if textbox.backspace(1).is_err() {
                     error!("Failed to backspace textbox in command mode");
@@ -96,7 +98,8 @@ where
                 };
                 textbox.draw(true)?;
             },
-            'a'..='z' | '0'..='9' | ' ' => {
+            'a'..='z' | 'A'..='Z' | '0'..='9' | ' ' => { // Allowed characters
+                char_buf.make_ascii_lowercase();
                 textbox.append_char(char_buf)?;
                 textbox.draw(true)?;
             },
@@ -107,9 +110,9 @@ where
         }
     }
 
-    // Now we work, knowing we already received the Enter key
+    // Now we work, knowing we already received the Enter key (because the loop is over)
     let command = textbox.get_text_str();
-    // We don't need to pop the last char, since we didn't add it to the textbox
+    // We don't need to pop the last char (the CR or LF char), since we didn't add it to the textbox
 
     match command {
         "reset" => {
@@ -131,14 +134,14 @@ where
             debug!("Alternative breakpoint requested by user (command 'breakpoint alt')");
             // Will cause an exception if no debugger is attached
             // SAFETY: We know this instruction does not meddle with any registers, and that this is valid assembly, so it has to be safe.
-            unsafe { core::arch::asm!("bkpt"); } // Inline breakpoint instruction
+            cortex_m::asm::bkpt(); // Optimises into an inline assembly instruction
         },
 
         "boot usb" | "usb boot" | "usb" => {
             info!("Rebooting into USB bootloader (command 'boot usb')");
             {
                 let mut disp = disp_refcell.borrow_mut();
-                disp.set_display_on(false)?;
+                disp.set_display_on(false)?; // Turns the display off (well, only the grahpics part, it still retains memory) for conventince
             }
             hal::rom_data::reset_to_usb_boot(1 << 25, 0); // Pin 25 for activity LED, both MSC and Picoboot enabled.
         },
@@ -222,12 +225,16 @@ Must've contained multiple spaces.");
 
             let iter = stack.multipop(count).expect("We already checked if the stack is not empty!");
 
-            #[cfg(debug_assertions)] // We need this, can't rely on macro debug_assert_eq!()
-            defmt::assert_eq!(iter.count(), count as usize);
-            #[cfg(not(debug_assertions))] // With this, compiler is happy that iterator gets consumed before `draw()` no matter what
+            // We need this, can't rely on macro debug_assert_eq!()
+            #[cfg(debug_assertions)]
+            defmt::assert_eq!(iter.count(), count as usize); // Counting the number of stuff popped
+            // (consuming the iterator in the process), and asserting that it's as expected.
+
+            // With this, compiler is happy that iterator gets consumed before `draw()` no matter what
+            #[cfg(not(debug_assertions))]
             drop(iter); // Automatically pops remaining unconsumed elements without bothering to count them
 
-            stack.draw(false)?;
+            stack.draw(false)?; // The cfg-s does not apply to this line anymore
         },
 
         "drop" => {
@@ -313,7 +320,8 @@ where
     let mut disp = disp_refcell.borrow_mut();
 
     // Converted at https://convertico.com/png-to-bmp/ to 1-bit BMP
-    let bmp = Bmp::from_slice(include_bytes!("calc_grave_err.bmp")).expect("Failed to load grave error image from memory. Image data must be malformed.");
+    let bmp = Bmp::from_slice(include_bytes!("calc_grave_err.bmp"))
+        .expect("Failed to load grave error image from memory. Image data must be malformed.");
     let img = Image::new(
         &bmp,
         (0, 0).into(), // Fullscreen
