@@ -196,7 +196,7 @@ Must've contained multiple spaces.");
                 // Hopefully more efficient/optimizable than pushing a temporary slice or pushing two times separately
                 stack.push_exact_iterator(
                     core::iter::repeat_n(val, 2)
-                )?;
+                ).map_err(|e| e.0)?; // We drop the second item of the returned tuple - the iterator.
                 stack.draw(false)?;
             } else {
                 warn!("Failed to duplicate top element of stack: stack is empty");

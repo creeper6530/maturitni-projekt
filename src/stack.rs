@@ -1,4 +1,3 @@
-// Imports for stuff to work
 use embedded_graphics::{
     prelude::*,
     pixelcolor::BinaryColor,
@@ -25,12 +24,11 @@ use ssd1306::{
     mode::BufferedGraphicsMode,
 };
 
-// Imports for the actual code
 use heapless::{Vec, String};
 use core::{
-    cell::RefCell, // For the `RefCell` type
-    cmp::min, // For the `min` function
-    fmt::Write, // For the `write!` macro
+    cell::RefCell,
+    cmp::min,
+    fmt::Write,
 };
 
 // Possibly gate this behind a defmt feature flag if we move this into a library crate
@@ -40,18 +38,19 @@ use crate::custom_error::{ // Because we already have the `mod` in `main.rs`
     CustomError,
     CE // Short type alias
 };
+use crate::textbox::DisplayDimensions;
 
 // ------------------------------------------------------------------------------------------------------------------------------------------------
-
-// Note: these constants are copied in `textbox.rs` as well, maintain consistency between the two files!
 
 // Compile time constants
 /// Maximum size of the stack
 const MAX_STACK_SIZE: usize = 256;
 /** The fonts we use usually have unused pixels at the top that'd waste space,
-so with this constant we basically cut off the top `n` pixels. */
+so with this constant we basically cut off the top `n` pixels.
+
+Please maintain consistency with `textbox.rs`. */
 const PIXELS_REMOVED: u8 = 2;
-/// Size of String-s used for buffering text during writes, and for the textbox
+/// Size of String-s used for buffering text during drawing
 /* We do an engineer's estimate that 32 bytes is enough for one line,
 since we can't compute it dynamically from font size (which isn't constant).
 It's true that we don't wanna waste memory, but better safe than sorry.
@@ -64,64 +63,20 @@ but that'd long overflow the display, so who cares? :D */
 const TEXT_BUFFER_SIZE: usize = 32;
 // ------------------------------------------------------------------------------------------------------------------------------------------------
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct DisplayDimensions {
-    pub width: u8,
-    pub height: u8,
-}
-
-impl From<(u8, u8)> for DisplayDimensions {
-    fn from(dimensions: (u8, u8)) -> Self {
-        DisplayDimensions {
-            width: dimensions.0,
-            height: dimensions.1,
-        }
-    }
-}
-
-impl Default for DisplayDimensions {
-    fn default() -> Self {
-        DisplayDimensions {
-            width: 128,
-            height: 64,
-        }
-    }
-}
-
-// ------------------------------------------------------------------------------------------------------------------------------------------------
-
-pub struct CustomStackBuilder<'a, T, DI, SIZE>
-where
-    DI: WriteOnlyDataCommand,
-    SIZE: DisplaySize,
-{
-    data: Vec<T, MAX_STACK_SIZE>,
-
-    display_refcell: &'a RefCell<Ssd1306<DI, SIZE, BufferedGraphicsMode<SIZE>>>,
+pub struct CustomStackBuilder<'a> {
     disp_dimensions: DisplayDimensions,
-
     character_style: MonoTextStyle<'a, BinaryColor>,
     primitives_style: PrimitiveStyle<BinaryColor>,
 }
 
 #[allow(dead_code)]
-impl<'a, T, DI, SIZE> CustomStackBuilder<'a, T, DI, SIZE>
-where
-    DI: WriteOnlyDataCommand,
-    SIZE: DisplaySize,
-{
-    /// Creates a new `CustomStack` with the given display RefCell.
-    /// 
-    /// This constructor uses the default display dimensions of 128x64 pixels and the default text style.
-    /// For custom parameters, use [`Self::new_custom()`].
-    pub fn new(
-        display_refcell: &'a RefCell<Ssd1306<DI, SIZE, BufferedGraphicsMode<SIZE>>>
-    ) -> Self {
-        CustomStackBuilder::<'a, T, DI, SIZE> {
-            data: Vec::new(), // The <T, MAX_STACK_SIZE> is inferred from the type parameters in the struct definition
-            
-            disp_dimensions: DisplayDimensions::default(),
-            display_refcell,
+impl<'a> CustomStackBuilder<'a> {
+    /// Creates a new `CustomStackBuilder` with the default display dimensions of 128x64 pixels
+    /// and the default text style.
+    /// For custom parameters, use the builder pattern.
+    pub const fn new() -> Self {
+        CustomStackBuilder::<'a> {
+            disp_dimensions: DisplayDimensions::const_default(),
 
             // Standard white text on (by default) transparent background
             character_style: MonoTextStyle::new(&ISO_FONT_6X12, BinaryColor::On),
@@ -134,57 +89,37 @@ where
         }
     }
 
-    pub fn build(self) -> CustomStack<'a, T, DI, SIZE> {
-        defmt::assert_eq!(self.data.capacity(), MAX_STACK_SIZE); // Just to be sure
-
+    /// Build the builder pattern into a finished struct, copying currently set parameters,
+    /// initialising empty ones and storing the RefCell provided as a parameter.
+    pub fn build<T, DI, SIZE>(
+        self,
+        display_refcell: &'a RefCell<Ssd1306<DI, SIZE, BufferedGraphicsMode<SIZE>>>
+    ) -> CustomStack<'a, T, DI, SIZE>
+    where
+        DI: WriteOnlyDataCommand,
+        SIZE: DisplaySize,
+    {
         CustomStack {
-            data: self.data,
+            data: Vec::new(), // The <T, MAX_STACK_SIZE> is inferred from the type parameters in the struct definition
 
             disp_dimensions: self.disp_dimensions,
-            display_refcell: self.display_refcell,
+            display_refcell: display_refcell,
 
             character_style: self.character_style,
             primitives_style: self.primitives_style,
         }
     }
 
-    pub fn set_disp_dimensions(mut self, dimensions: DisplayDimensions) -> Self {
+    pub const fn set_disp_dimensions(&mut self, dimensions: DisplayDimensions) {
         self.disp_dimensions = dimensions;
-        self
     }
 
-    pub fn set_character_style(mut self, character_style: MonoTextStyle<'a, BinaryColor>) -> Self {
+    pub const fn set_character_style(&mut self, character_style: MonoTextStyle<'a, BinaryColor>) {
         self.character_style = character_style;
-        self
     }
 
-    pub fn set_primitives_style(mut self, primitives_style: PrimitiveStyle<BinaryColor>) -> Self {
+    pub const fn set_primitives_style(&mut self, primitives_style: PrimitiveStyle<BinaryColor>) {
         self.primitives_style = primitives_style;
-        self
-    }
-}
-
-#[allow(dead_code)]
-impl<'a, T, DI, SIZE> CustomStackBuilder<'a, T, DI, SIZE>
-where
-    T: Default + Clone, // It is exceptionally rare that a type is Default but not Clone, so this is acceptable.
-    DI: WriteOnlyDataCommand,
-    SIZE: DisplaySize,
-{
-    pub fn build_debug(mut self) -> CustomStack<'a, T, DI, SIZE> {
-        self.data.resize_default(MAX_STACK_SIZE)
-            // This Result does not have T as its Err type, so no Debug bound arises here
-            .expect("We're resizing to MAX_STACK_SIZE, so this should never fail!");
-
-        CustomStack {
-            data: self.data,
-
-            disp_dimensions: self.disp_dimensions,
-            display_refcell: self.display_refcell,
-
-            character_style: self.character_style,
-            primitives_style: self.primitives_style,
-        }
     }
 }
 
@@ -192,7 +127,7 @@ where
 
 #[allow(dead_code)]
 pub struct CustomStack<'a, T, DI, SIZE>
-where // We dropped the Copy bound in commit b570971032f7a7de6d69c37402bddd0ee0cb40b2 and Debug/Display in commit right after
+where
     DI: WriteOnlyDataCommand,
     SIZE: DisplaySize,
 {
@@ -212,9 +147,7 @@ where
     SIZE: DisplaySize,
 {
     /// Pushes a value onto the stack.
-    /// 
     /// We need ownership of the value to push it onto the stack.
-    /// (In reality it's trivial to since DecimalFixed we use is Copy)
     /// 
     /// In Err we return a tuple including the value that was attempted to be pushed,
     /// so that the caller can decide what to do with it.
@@ -222,7 +155,7 @@ where
         self.data.push(value).map_err(|t| (CE::CapacityError, t))
     }
 
-    /// Pushes multiple values onto the stack from any iterator.
+    /// Pushes multiple values onto the stack from any IntoIterator that gives us ownership of T.
     /// If the stack does not have enough space for all values, it panics.
     /// 
     /// For owned arrays with const size, prefer `push_array()`.
@@ -232,32 +165,36 @@ where
     /// If `check_hint` is true, and the iterator has an upper size hint,
     /// and the hint indicates that pushing all elements would overflow the stack,
     /// and the upper size hint would overflow the stack,
-    /// the method returns an error instead of (possibly) panicking.
-    pub fn push_iterator(&mut self, iter: impl Iterator<Item = T>, check_hint: bool) -> Result<(), CustomError> {
+    /// the method returns an error with the array that could not be pushed as second element of the tuple
+    /// (returning ownership back), instead of (possibly) panicking.
+    pub fn push_iterator(&mut self, iter: impl Iterator<Item = T>, check_hint: bool)
+    -> Result<(), (CustomError, impl IntoIterator<Item = T>)>
+    {
         // Short-circuiting is desirable here
         if check_hint // If the caller wants us to check the size hint
             && let Some(hint) = iter.size_hint().1 // If the iterator has an upper bound
             && self.data.len() + hint > MAX_STACK_SIZE // If it would actually overflow the stack
         {
-            return Err(CE::CapacityError);
+            return Err((CE::CapacityError, iter));
         }
 
         self.data.extend(iter);
         Ok(())
     }
 
-    /// Pushes multiple values onto the stack from an exact-size iterator.
-    /// If the stack does not have enough space for all values, it returns an error.
+    /// Pushes multiple values onto the stack from an exact-size iterator that gives us ownership of T.
+    /// If the stack does not have enough space for all values, it returns an error
+    /// with the iterator that could not be pushed as second element of the tuple (returning ownership back).
     /// 
     /// For owned arrays with const size, prefer `push_array()`.
     /// For slices that are composed of Clone types, prefer `push_slice()`.
     /// For general iterators, use `push_iterator()` if the possibility of panic does not scare you.
-    pub fn push_exact_iterator(&mut self, iter: impl ExactSizeIterator<Item = T>) -> Result<(), CustomError> {
-        let iter = iter.into_iter();
-        
+    pub fn push_exact_iterator(&mut self, iter: impl ExactSizeIterator<Item = T>)
+    -> Result<(), (CustomError, impl ExactSizeIterator<Item = T>)>
+    {
         // Thanks to ExactSizeIterator, we can get the exact size of the iterator beforehand and check for overflow
         if self.data.len() + iter.len() > MAX_STACK_SIZE {
-            return Err(CE::CapacityError);
+            return Err((CE::CapacityError, iter));
         }
 
         self.data.extend(iter);
@@ -266,8 +203,8 @@ where
 
     /// Pushes an owned array of values onto the stack.
     /// The array MUST have a const size, otherwise use an iterator.
-    /// If the stack does not have enough space,
-    /// it returns an error with the array that could not be pushed as second element of the tuple.
+    /// If the stack does not have enough space, it returns an error
+    /// with the array that could not be pushed as second element of the tuple (returning ownership back).
     /// 
     /// The last element of the array will be the topmost element of the stack.
     pub fn push_array<const N: usize>(&mut self, array: [T; N]) -> Result<(), (CustomError, [T; N])> {
@@ -276,7 +213,7 @@ where
         }
 
         // SAFETY: We already checked that capacity is OK. Can't panic.
-        self.data.extend(array);
+        self.data.extend(array); // Internally converts the array into an iterator
         Ok(())
     }
 
@@ -292,8 +229,8 @@ where
     /// 
     /// If the stack is empty, it returns `None`. If you try to pop more elements than there are, it pops all.
     /// 
-    /// The topmost element of the stack is the **FIRST** item yielded by the iterator,
-    /// unlike `multipeek()`.
+    /// The topmost element of the stack is the **FIRST** item yielded by the iterator
+    /// (unless using `next_back()`), unlike `multipeek()`.
     pub fn multipop(&mut self, n: u8) -> Option<impl DoubleEndedIterator<Item = T>> {
     // See https://doc.rust-lang.org/stable/book/ch10-02-traits.html#returning-types-that-implement-traits for explanation of what we're returning here.
         if self.data.is_empty() {
@@ -335,10 +272,7 @@ where
         // The `saturating_sub` ensures that if n > len, we get 0 as the start index, effectively returning the entire stack.
     }
 
-    /// Clears the entire stack
-    /// 
-    /// ## Warning
-    /// This method will cause all data in the stack to be lost.
+    /// Clears the entire stack.
     pub fn clear(&mut self) {
         self.data.clear();
     }
@@ -363,7 +297,9 @@ where
     /// If the stack does not have enough space for all values, it returns an error.
     ///
     /// We need the `Clone` bound on `T` to be able to clone the elements from the slice.
-    /// To push multiple values from an IntoIterator collection that owns the values, use `push_iterator()`.
+    /// To push multiple values from an IntoIterator collection that owns `T`, use `push_iterator()`.
+    /// To push multiple values from an ExactSizeIterator that owns `T`, use `push_exact_iterator()`.
+    /// To push a const-size array of `T`, use `push_array()`.
     pub fn push_slice(&mut self, slice: &[T]) -> Result<(), CustomError> {
         self.data.extend_from_slice(slice).map_err(|_| CE::CapacityError)
     }
@@ -375,8 +311,6 @@ where
     DI: WriteOnlyDataCommand,
     SIZE: DisplaySize,
 {
-    /// Draws the stack on the display.
-    /// Can return DisplayError or FormatError.
     pub fn draw(&self, flush: bool) -> Result<(), CustomError> {
         // A convenience variable
         let text_height = (self.character_style.font.character_size.height - PIXELS_REMOVED as u32) as u8;

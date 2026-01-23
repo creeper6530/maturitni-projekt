@@ -124,11 +124,10 @@ fn main() -> ! {
     // ----------------------------------------------------------------------------
 
     let disp_refcell = RefCell::new(disp);
-    // Range of i32 is `-2147483648..=2147483647`
-    let mut stack = CustomStackBuilder::<'_, DecimalFixed, _, _>::new(&disp_refcell) // We're using the turbofish syntax here
-        .build();
-    let mut textbox = CustomTextboxBuilder::new(&disp_refcell)
-        .build();
+    let mut stack: CustomStack<'_, DecimalFixed, _, _> = CustomStackBuilder::new() // Specifying DecimalFixed just to be sure
+        .build(&disp_refcell);
+    let mut textbox = CustomTextboxBuilder::new()
+        .build(&disp_refcell);
 
     stack.draw(false)
         .inspect_err(|e| defmt::panic!("Error with display: {:?}", *e))

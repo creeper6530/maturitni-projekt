@@ -1,4 +1,3 @@
-// Imports for stuff to work
 use embedded_graphics::{
     prelude::*,
     pixelcolor::BinaryColor,
@@ -25,9 +24,8 @@ use ssd1306::{
     mode::BufferedGraphicsMode,
 };
 
-// Imports for the actual code
 use heapless::String;
-use core::cell::RefCell; // For the `RefCell` type
+use core::cell::RefCell;
 
 use crate::custom_error::{ // Because we already have the `mod` in `main.rs`
     CustomError,
@@ -36,16 +34,14 @@ use crate::custom_error::{ // Because we already have the `mod` in `main.rs`
 
 // ------------------------------------------------------------------------------------------------------------------------------------------------
 
-// Note: these constants are copied in `stack.rs` as well, maintain consistency between the two files!
-
 // Compile time constants
 /** The fonts we use usually have unused pixels at the top that'd waste space,
-so with this constant we basically cut off the top `n` pixels. */
+so with this constant we basically cut off the top `n` pixels.
+
+Please maintain consistency with `textbox.rs`. */
 const PIXELS_REMOVED: u8 = 2;
 /// Size of String-s used for buffering text during writes, and for the textbox
 const TEXT_BUFFER_SIZE: usize = 32;
-/// Message to fill the textbox with when building a debug textbox
-const DEBUG_TEXTBOX_MESSAGE: &'static str = "DEBUG TEXTBOX";
 /** Number of pixels to offset the textbox from the bottom of the display by.
 
 This constant shall be determined by the programmer,
@@ -55,19 +51,16 @@ const TEXTBOX_OFFSET: u8 = 3;
 /// Determines the height of the cursor in pixels.
 /// Disregarded if `TEXTBOX_CURSOR` is false.
 const CURSOR_HEIGHT: u8 = 3;
-/** Whether to draw a cursor under the text of the textbox
-
-May only be true of we give it the space with the TEXTBOX_OFFSET const
--- if the const is larger than one */
+/// Whether to draw a cursor under the text of the textbox.
 const TEXTBOX_CURSOR: bool = true;
 
-// Evaluated at compile time to ensure that the constants are valid
+// HACK: Evaluate the block of code at compile time to assert that constants aren't malformed
 const fn _check_consts() {
-    if TEXT_BUFFER_SIZE < DEBUG_TEXTBOX_MESSAGE.len() {
-        core::panic!("TEXT_BUFFER_SIZE is too small to hold DEBUG_TEXTBOX_MESSAGE");
+    if TEXTBOX_CURSOR && TEXTBOX_OFFSET < CURSOR_HEIGHT {
+        core::panic!("Enabled cursor, but without having given space for it!")
     }
 }
-const _: () = _check_consts(); // Trigger the const fn to check the constants at compile time
+const _: () = _check_consts();
 
 // ------------------------------------------------------------------------------------------------------------------------------------------------
 
@@ -95,41 +88,34 @@ impl Default for DisplayDimensions {
     }
 }
 
+// error[E0379]: functions in trait impls cannot be declared const
+// See https://github.com/rust-lang/rust/issues/143874
+impl DisplayDimensions {
+    pub const fn const_default() -> Self {
+        DisplayDimensions {
+            width: 128,
+            height: 64,
+        }
+    }
+}
+
 // ------------------------------------------------------------------------------------------------------------------------------------------------
 
-pub struct CustomTextboxBuilder<'a, DI, SIZE>
-where
-    DI: WriteOnlyDataCommand,
-    SIZE: DisplaySize,
-{
-    text: String<TEXT_BUFFER_SIZE>,
-
-    display_refcell: &'a RefCell<Ssd1306<DI, SIZE, BufferedGraphicsMode<SIZE>>>,
+pub struct CustomTextboxBuilder<'a> {
     disp_dimensions: DisplayDimensions,
-
     character_style: MonoTextStyle<'a, BinaryColor>,
     primitives_style: PrimitiveStyle<BinaryColor>,
     primitives_alternate_style: PrimitiveStyle<BinaryColor>,
 }
 
 #[allow(dead_code)]
-impl<'a, DI, SIZE> CustomTextboxBuilder<'a, DI, SIZE>
-where 
-    DI: WriteOnlyDataCommand,
-    SIZE: DisplaySize,
-{
-    /// Creates a new `CustomTextboxBuilder` with the given display RefCell.
-    /// 
-    /// This constructor uses the default display dimensions of 128x64 pixels and the default text style.
-    /// For custom parameters, use [`Self::new_custom()`].
-    pub fn new(
-        display_refcell: &'a RefCell<Ssd1306<DI, SIZE, BufferedGraphicsMode<SIZE>>>
-    ) -> Self {
+impl<'a> CustomTextboxBuilder<'a> {
+    /// Creates a new `CustomTextboxBuilder` with the default display dimensions of 128x64 pixels
+    /// and the default text style.
+    /// For custom parameters, use the builder pattern.
+    pub const fn new() -> Self {
         CustomTextboxBuilder {
-            text: String::new(),
-            
-            disp_dimensions: DisplayDimensions::default(),
-            display_refcell,
+            disp_dimensions: DisplayDimensions::const_default(),
 
             // Standard white text on (by default) transparent background
             character_style: MonoTextStyle::new(&ISO_FONT_6X12, BinaryColor::On),
@@ -150,12 +136,21 @@ where
         }
     }
 
-    pub fn build(self) -> CustomTextbox<'a, DI, SIZE> {
+    /// Build the builder pattern into a finished struct, copying currently set parameters,
+    /// initialising empty ones and storing the RefCell provided as a parameter.
+    pub fn build<DI, SIZE> (
+        self,
+        display_refcell: &'a RefCell<Ssd1306<DI, SIZE, BufferedGraphicsMode<SIZE>>>
+    ) -> CustomTextbox<'a, DI, SIZE>
+    where 
+        DI: WriteOnlyDataCommand,
+        SIZE: DisplaySize,
+    {
         CustomTextbox {
-            text: self.text,
+            text: String::new(),
 
             disp_dimensions: self.disp_dimensions,
-            display_refcell: self.display_refcell,
+            display_refcell,
 
             character_style: self.character_style,
             primitives_style: self.primitives_style,
@@ -163,43 +158,20 @@ where
         }
     }
 
-    pub fn build_debug(mut self) -> CustomTextbox<'a, DI, SIZE> {
-        // The String should be empty at this point
-        debug_assert!(self.text.is_empty(), "Tried to build a debug textbox, but the textbox text is not empty!");
-        
-        self.text.push_str(DEBUG_TEXTBOX_MESSAGE)
-            .expect("TEXT_BUFFER_SIZE is too small for DEBUG_TEXTBOX_MESSAGE, this should be impossible!"); // We checked at compile time
-
-        CustomTextbox {
-            text: self.text,
-
-            disp_dimensions: self.disp_dimensions,
-            display_refcell: self.display_refcell,
-
-            character_style: self.character_style,
-            primitives_style: self.primitives_style,
-            primitives_alternate_style: self.primitives_alternate_style,
-        }
-    }
-
-    pub fn set_disp_dimensions(mut self, dimensions: DisplayDimensions) -> Self {
+    pub const fn set_disp_dimensions(&mut self, dimensions: DisplayDimensions) {
         self.disp_dimensions = dimensions;
-        self
     }
 
-    pub fn set_character_style(mut self, character_style: MonoTextStyle<'a, BinaryColor>) -> Self {
+    pub const fn set_character_style(&mut self, character_style: MonoTextStyle<'a, BinaryColor>) {
         self.character_style = character_style;
-        self
     }
 
-    pub fn set_primitives_style(mut self, primitives_style: PrimitiveStyle<BinaryColor>) -> Self {
+    pub const fn set_primitives_style(&mut self, primitives_style: PrimitiveStyle<BinaryColor>) {
         self.primitives_style = primitives_style;
-        self
     }
 
-    pub fn set_primitives_alternate_style(mut self, primitives_alternate_style: PrimitiveStyle<BinaryColor>) -> Self {
+    pub const fn set_primitives_alternate_style(&mut self, primitives_alternate_style: PrimitiveStyle<BinaryColor>) {
         self.primitives_alternate_style = primitives_alternate_style;
-        self
     }
 }
 
@@ -221,7 +193,6 @@ where
     primitives_alternate_style: PrimitiveStyle<BinaryColor>,
 }
 
-/// Can return DisplayError only
 #[allow(dead_code)]
 impl<'a, DI, SIZE> CustomTextbox<'a, DI, SIZE>
 where
@@ -230,28 +201,40 @@ where
 {
     pub fn draw(&self, flush: bool) -> Result<(), CustomError> {
         let text_height = self.character_style.font.character_size.height as u8 - PIXELS_REMOVED;
-        let textbox_height = text_height + TEXTBOX_OFFSET; // The height of the whole textbox is the height of one line of text plus the offset
+        let textbox_height = text_height + TEXTBOX_OFFSET;
 
-        let clear_rect = Rectangle::with_corners(
+        let mut display_refmut = self.display_refcell.borrow_mut();
+        let display_ref = &mut (*display_refmut); // Unpack the RefMut to get the inner struct, then get a mutable reference to it
+        // In method calls, the compiler does this for us, but not so when we need to pass a reference to `draw()`
+
+        /* Yes, we could first create the structs and then draw them all at once,
+        to minimize the critical section of RefCell, but in reality it's not worth it.
+        The creation functions are really brief anyways. */
+        
+        // Clearing rectangle so that we don't draw over previously present text
+        Rectangle::with_corners(
             (0, self.disp_dimensions.height as i32 - 1).into(), // Bottom right corner
+            // (even though the method itself doesn't care, any two diagonally opposite corners would fly)
             (
                 self.disp_dimensions.width as i32 - 1,
                 (self.disp_dimensions.height - textbox_height) as i32
             ).into() // Top left corner
         )
-        .into_styled(self.primitives_alternate_style);
+        .into_styled(self.primitives_alternate_style)
+        .draw(display_ref)?;
 
-        let text = Text::with_baseline(
+        // The actual text
+        Text::with_baseline(
             self.text.as_str(),
             (0, (self.disp_dimensions.height - textbox_height) as i32).into(), // Top left corner
             self.character_style,
             Baseline::Top
-        );
+        )
+        .draw(display_ref)?;
 
-        // We can't leave the cursor variable possibly uninitialised, so we use Option
-        let cursor: Option<_> = if TEXTBOX_CURSOR {
-            // Draw the cursor just below the text
-            Some(Rectangle::new(
+        // The cursor
+        if TEXTBOX_CURSOR {
+            Rectangle::new(
                 (
                     self.text.chars().count() as i32 * self.character_style.font.character_size.width as i32, 
                     (self.disp_dimensions.height - CURSOR_HEIGHT) as i32
@@ -261,33 +244,24 @@ where
                     (CURSOR_HEIGHT) as u32
                 ).into()
             )
-            .into_styled(self.primitives_style))
-        } else { None };
-
-        // We defer the borrow of the RefCell until the last possible moment to minimize the critical section
-        let mut display_refmut = self.display_refcell.borrow_mut();
-        let display_ref = &mut (*display_refmut); // Unpack the RefMut to get the inner struct, then get a mutable reference to it
-        // In method calls, the compiler does this for us, but not so when we need to pass a reference to `draw()`
-
-        clear_rect.draw(display_ref)?;
-        text.draw(display_ref)?;
-        if TEXTBOX_CURSOR {
-            cursor.expect("cursor should be Some if TEXTBOX_CURSOR is true!")
+            .into_styled(self.primitives_style)
             .draw(display_ref)?;
-        }
+        };
         if flush { display_ref.flush()?; };
 
         Ok(())
     }
 
+    // Append a str at the end of textbox
     pub fn append_str(&mut self, string: &str) -> Result<(), CustomError> {
         // We do not check for buffer overflow, as `push_str` will do that for us
 
         // We don't need `map_err(|_| e.into())` for the zero-sized `CapacityError`,
-        // and like this it's clearer than `Ok(push_str(...)?)`
+        // and like this it's perhaps a bit clearer than `Ok(push_str(...)?)`
         self.text.push_str(string).map_err(|_| CE::CapacityError)
     }
 
+    // Append a single char at the end of the textbox
     pub fn append_char(&mut self, c: char) -> Result<(), CustomError> {
         self.text.push(c).map_err(|_| CE::CapacityError)
     }
@@ -301,6 +275,7 @@ where
         self.text.as_str()
     }
 
+    // Pops the last `count` chars at the end
     pub fn backspace(&mut self, count: usize) -> Result<(), CustomError> {
         if self.text.len() < count {
             return Err(CE::BadInput);
@@ -383,7 +358,6 @@ where
     }
 
     pub fn clear(&mut self) {
-        //warn!("Clearing the textbox, all text will be lost.");
         self.text.clear();
     }
 
