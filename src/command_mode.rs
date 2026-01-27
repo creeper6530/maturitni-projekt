@@ -1,5 +1,6 @@
 use defmt::*;
 use rp2040_hal as hal;
+use heapless::Vec;
 
 use embedded_graphics::{image::Image, prelude::*};
 use ssd1306::{prelude::*, Ssd1306, mode::BufferedGraphicsMode};
@@ -111,8 +112,8 @@ where
     }
 
     // Now we work, knowing we already received the Enter key (because the loop is over)
-    let command = textbox.get_text_str();
-    // We don't need to pop the last char (the CR or LF char), since we didn't add it to the textbox
+    let command = textbox.get_text_str()
+        .trim(); // Trim all Unicode whitespaces from both ends (including newlines)
 
     match command {
         "reset" => {
@@ -134,7 +135,8 @@ where
             debug!("Alternative breakpoint requested by user (command 'breakpoint alt')");
             // Will cause an exception if no debugger is attached
             // SAFETY: We know this instruction does not meddle with any registers, and that this is valid assembly, so it has to be safe.
-            cortex_m::asm::bkpt(); // Optimises into an inline assembly instruction
+            // By inlining it without a function call, we keep access to local variables if needed for debugging.
+            unsafe { core::arch::asm!("bkpt"); } // Inline breakpoint instruction
         },
 
         "boot usb" | "usb boot" | "usb" => {
@@ -192,11 +194,11 @@ Must've contained multiple spaces.");
         },
 
         "d" | "dup" | "duplicate" => {
-            if let Some(val) = stack.pop() {
-                // Hopefully more efficient/optimizable than pushing a temporary slice or pushing two times separately
-                stack.push_exact_iterator(
-                    core::iter::repeat_n(val, 2)
-                ).map_err(|e| e.0)?; // We drop the second item of the returned tuple - the iterator.
+            if let Some(val) = stack.peek() {
+                if stack.push(val.clone()).is_err() {
+                    error!("Failed to duplicate top element of stack: CapacityError");
+                    return Err(CE::CapacityError);
+                };
                 stack.draw(false)?;
             } else {
                 warn!("Failed to duplicate top element of stack: stack is empty");
@@ -230,7 +232,7 @@ Must've contained multiple spaces.");
             defmt::assert_eq!(iter.count(), count as usize); // Counting the number of stuff popped
             // (consuming the iterator in the process), and asserting that it's as expected.
 
-            // With this, compiler is happy that iterator gets consumed before `draw()` no matter what
+            // With this attribute, compiler is happy that iterator gets consumed before `draw()` no matter what
             #[cfg(not(debug_assertions))]
             drop(iter); // Automatically pops remaining unconsumed elements without bothering to count them
 
@@ -246,41 +248,38 @@ Must've contained multiple spaces.");
         },
 
         "s" | "swap" => {
-            // B was pushed later, so it is popped first
-            let option_b = stack.pop();
-            let option_a = stack.pop();
+            // multipop can only fail if there are no elements on the stack,
+            // **by design** it will just return fewer elements if there are not enough,
+            // so we have to check the stack length ourselves.
+            if stack.len() < 2 {
+                warn!("Not enough numbers on stack to perform swap. Need 2, got {}.", stack.len());
+                return Err(CE::BadInput);
+            }
 
-            match (option_a, option_b) {
-                (Some(a), Some(b)) => {
-                    // Earlier B was pushed later, so it is now pushed first
-                    // Evaluation order is defined left-to-right
-                    // We do NOT want to use short-circuiting here
-                    if stack.push(b).is_err() | stack.push(a).is_err() {
-                        // .push() will only ever return CapacityError
-                        error!("Failed to push number onto stack: CapacityError");
-                        error!("This should be impossible, the stack should have enough space since we already popped from it.");
-                        return Err(CE::Impossible);
-                    };
-                    stack.draw(false)?;
-                },
-                (None, Some(a)) => {
-                    warn!("Failed to swap top two elements of stack: stack has only one element.");
-                    if stack.push(a).is_err() {
-                        error!("Failed to push number onto stack: CapacityError");
-                        error!("This should be impossible, the stack should have enough space since we already popped from it.");
-                        return Err(CE::Impossible);
-                    }
-                    return Err(CE::BadInput);
-                },
-                (None, None) => {
-                    warn!("Failed to swap top two elements of stack: stack is empty.");
-                    return Err(CE::BadInput);
-                },
-                (Some(_), None) => {
-                    error!("This should be impossible. How can we first fail but then succeed?");
-                    return Err(CE::Impossible);
-                },
+            // Remember, multipop yields elements in reverse order (topmost first)...
+            let Some(iter) = stack.multipop(2) else {
+                error!("Failed to pop elements from stack for swap.");
+                error!("This should be impossible, we already checked that there are at least 2 elements on the stack.");
+                return Err(CE::Impossible);
             };
+
+            // We collect the iterator into a Vec first
+            // (Cannot push the iterator directly because then we'd have two mutable borrows at once)
+            let buf_vec: Vec<T, 2> = iter.collect();
+            let Ok(buf) = buf_vec.into_array::<2>() else {
+                error!("Failed to collect popped elements into array for swap.");
+                error!("This should be impossible, we already checked that we popped exactly 2 elements.");
+                return Err(CE::Impossible);
+            };
+
+            // ...and push_array pushes them in order (last topmost), swapping them
+            if stack.push_array(buf).is_err() {
+                error!("Failed to push numbers onto stack: CapacityError");
+                error!("This should be impossible, the stack should have enough space since we already popped from it.");
+                return Err(CE::Impossible);
+            };
+
+            stack.draw(false)?;
         },
 
         "" => {
