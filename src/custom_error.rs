@@ -37,7 +37,6 @@ pub enum CustomError {
     Cancelled,
 
     /// A miscellaneous error that doesn't fit in any other variant.
-    /// Use the OtherString variant if you want to provide more context.
     #[default] Other // We have to mark a default variant by this attribute for the Default derive
 }
 

@@ -8,7 +8,6 @@ license = "MIT OR Apache-2.0"
 cortex-m = { version = "0.7", features = ["inline-asm"] } # Bumps cortex-m's MSRV to 1.59, a non-issue
 cortex-m-rt = "0.7"
 embedded-hal = "1"
-critical-section = "1"
 heapless = { version = "0.9", features = ["defmt"] }
 
 defmt = "1"
@@ -23,6 +22,9 @@ embedded-graphics = { version = "0.8", features = ["defmt"] }
 tinybmp = "0.6"
 # display-interface = { version = "0.5", features = ["defmt-03"], path = "D:\\Rust\\display-interface" }
 display-interface = { version = "0.5", features = ["defmt-03"] }
+
+[lints.clippy]
+upper_case_acronyms = "allow"
 
 # cargo build/run
 [profile.dev]

@@ -272,7 +272,7 @@ impl Mul for DecimalFixed {
 
         // We do 10_i64 so that we don't need 4.4KiB of i128::pow()
         // Yes, it's silly to do microoptimisation in this project, but I enjoy it in some twisted way.
-        let scale_factor: i128 = i128::from(10_i64.pow(self.exponent.abs() as u32));
+        let scale_factor: i128 = i128::from(10_i64.pow(self.exponent.unsigned_abs() as u32));
         let end_value: i128 = if self.exponent >= 0 {
             scaled_end_value.checked_mul(scale_factor).ok_or(CE::MathOverflow)?
         } else {
@@ -299,7 +299,7 @@ impl Div for DecimalFixed {
 
         // We do 10_i64 so that we don't need 4.4KiB of i128::pow()
         // Yes, it's silly.
-        let scale_factor: i128 = i128::from(10_i64.pow(self.exponent.abs() as u32));
+        let scale_factor: i128 = i128::from(10_i64.pow(self.exponent.unsigned_abs() as u32));
         let scaled_self_value: i128 = if self.exponent >= 0 {
             i128::from(self.value) / scale_factor
         } else {

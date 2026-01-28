@@ -4,12 +4,13 @@
 // 1 MHz, the maximum speed for I²C on the RP2040 (so-called Fast Mode Plus; datasheet 4.3.3), and the SSD1306 can handle it well
 const I2C_FREQ: hal::fugit::HertzU32 = hal::fugit::HertzU32::kHz(1000);
 
-// Debugging imports
+// We start RTT in no-blocking mode, `probe-run` will switch to blocking mode.
+// Do not disconnect the probe while the program is running, unless you stop probe-run first.
+// (Then it will revert to nonblocking: https://github.com/probe-rs/probe-rs/issues/2425)
 use defmt::*;
-use defmt_rtt as _; // We start RTT in no-blocking mode, `probe-run` will switch to blocking mode. That's why we shall not disconnect the probe while the program is running.
+use defmt_rtt as _;
 use panic_probe as _;
 
-// Library imports
 use rp2040_hal::{
     self as hal,
     pac,
@@ -26,7 +27,6 @@ use embedded_graphics::{image::Image, prelude::*};
 use ssd1306::{Ssd1306, mode::BufferedGraphicsMode, prelude::*};
 use tinybmp::Bmp;
 
-// Custom module imports
 mod stack;
 use stack::*;
 mod textbox;
@@ -37,25 +37,29 @@ mod custom_error;
 use custom_error::{
     CustomError, // Never use `CustomError::*`, it could cause unobvious bugs!
     CE, // Using the type alias from `custom_error.rs`
-    IntErrorKindClone,
+    IntErrorKindClone as IEKC,
 };
 mod command_mode;
 use command_mode::handle_commands;
 
+// We store the boot2 code in its own section so the linker script can find it
+// and place it at the correct address in flash, as required by the RP2040.
 #[unsafe(link_section = ".boot2")]
 #[used]
 pub static BOOT2: [u8; 256] = rp2040_boot2::BOOT_LOADER_W25Q080;
 
+#[inline]
 pub fn get_timestamp_us() -> u64 {
-    /* Stolen from `https://docs.rs/rp2040-hal/latest/src/rp2040_hal/timer.rs.html#69-88`
+    /* Inspired by `https://docs.rs/rp2040-hal/latest/src/rp2040_hal/timer.rs.html#69-88`
     and `https://defmt.ferrous-systems.com/timestamps`, though customised greatly.
-    We use the critical section to ensure no disruptions, because reading L latches the H register (datasheet section 4.6.2)
-    It could have unforseen consequences if we try reading again while there's already a read in progress. */
+    Reading L latches the H register (datasheet section 4.6.2).
+    We do disable interrupts, but don't need a full-blown critical section,
+    because we don't do dualcore. */
 
     // We dereference the TIMER peripheral's raw pointer and get a normal reference to it for the methods.
     // Safety: We are guaranteed that the PTR points to a valid place, since we assume the `pac` is infallible.
     let timer_regs = unsafe { &*pac::TIMER::PTR };
-    critical_section::with(|_| {
+    hal::arch::interrupt_free(|| {
         let low: u32 = timer_regs.timelr().read().bits();
         let hi: u32 = timer_regs.timehr().read().bits();
         ((hi as u64) << 32) | (low as u64)
@@ -110,10 +114,13 @@ fn main() -> ! {
     // Let me ask one question: Why the hell can't this be as straightforward as I²C is?
     let uart = hal::uart::UartPeripheral::new(
         peri.UART0,
-        (pins.gpio0.into_function(), pins.gpio1.into_function()), // Luckily the function itself is inferred too, so we don't need to specify it explicitly
+        (pins.gpio0.into_function(), pins.gpio1.into_function()), // Again, inferred from context
         &mut peri.RESETS
     )
-    .enable(hal::uart::UartConfig::default(), clocks.peripheral_clock.freq()) // Default is a sane 115200 8N1
+    .enable(
+        hal::uart::UartConfig::default(), // Default config is a sane 115200 8N1
+        clocks.peripheral_clock.freq()
+    )
     .expect("Failed to initialize UART peripheral: bad configuration provided.");
     let (rx, tx) = uart.split();
     trace!("UART initialized");
@@ -141,15 +148,11 @@ fn main() -> ! {
     tx.write_full_blocking(b"Entering main loop\r\n");
     info!("Entering main loop");
 
-    // We declare these outside the loop to avoid stack reallocation on each iteration.
-    // It's possible that it could overflow the stack if we relied on optimization to refrain from infinite shadowing.
-    // Due to making the buffer only one byte large, we read **one** byte at a time. Most of our input is ASCII anyway.
-    let mut buf: [u8; 1] = [0]; // Yes, we do need to initialize it even if we overwrite it immediately.
-    let mut char_buf: char;
-
     // Label the main loop so we can call `continue` simpler-ly (more simply?) in case of errors if there were nested loops.
     'main: loop {
-        if let Err(e) = rx.read_full_blocking(&mut buf) { // TODO: Figure out a way to do this non-blocking, perhaps with DMA and/or an interrupt. I tried and failed miserably. Maybe I should just have used an async executor like Embassy.
+        // Due to making the buffer only one byte large, we read **one** byte at a time. Most of our input is ASCII anyway.
+        let mut buf: [u8; 1] = [0]; // Yes, we do need to initialize it even if we overwrite it immediately.
+        if let Err(e) = rx.read_full_blocking(&mut buf) {
             error!("Failed to read from UART: {:?}", e);
             if let hal::uart::ReadErrorType::Break = e {
                 debug!("Check wiring, usually a break indicates a disconnected wire at the RX pin.");
@@ -161,19 +164,22 @@ fn main() -> ! {
             continue 'main;
         }
 
-        char_buf = char::from_u32(buf[0] as u32).unwrap_or('?'); // Replace invalid UTF-8 with a replacement character
+        let Some(char_buf) = char::from_u32(buf[0] as u32) else {
+            warn!("Received invalid UTF-8 byte over UART: 0x{:X}, continuing the loop", buf[0]);
+            continue 'main;
+        };
 
         match char_buf {
             '\r' | '\n' => { // Enter or newline
                 if textbox.is_empty() || textbox.get_text_str() == "-" {
-                    continue 'main; // Ignore empty textbox or textbox with just a minus sign
+                    continue 'main; // Ignore empty textbox or textbox with just a minus sign, continuing
                 }
 
                 if let Err(e) = parse_textbox(&mut textbox, &mut stack, true) {
                     match e {
                         CE::CapacityError |
                         CE::MathOverflow |
-                        CE::ParseIntError(IntErrorKindClone::PosOverflow | IntErrorKindClone::NegOverflow) => {
+                        CE::ParseIntError(IEKC::PosOverflow | IEKC::NegOverflow) => {
                             error!("Error parsing textbox: {:?}", e);
                             if let Err(e) = stack.draw(false) {
                                 defmt::panic!("Error with display: {:?}", e);
@@ -187,25 +193,23 @@ fn main() -> ! {
                         CE::DisplayError(e) => defmt::panic!("Error with display: {:?}", e),
                         _ => disp_grave_error(&disp_refcell, Some(&mut delay))
                     }
-                } // Else it's already drawn
+                }
             },
 
             '\x08' | '\x7F' => { // Backspace or Delete
                 trace!("Backspace character received: (0x{:X})", buf[0]);
 
                 if textbox.is_empty() {
-                    debug!("Ignoring backspace on empty textbox.");
-                    continue 'main; // Diverging, does not continue forwards
+                    continue 'main;
                 };
                 if textbox.backspace(1).is_err() {
                     error!("Failed to backspace textbox");
                     error!("This should normally be impossible, we already checked it's not empty");
-                    disp_grave_error(&disp_refcell, Some(&mut delay)); // Diverging too
+                    disp_grave_error(&disp_refcell, Some(&mut delay));
                 };
                 if let Err(e) = textbox.draw(true) {
                     defmt::panic!("Error with display: {:?}", e);
                 }
-
             },
 
             '.' | ',' => { // Decimal point
@@ -224,7 +228,7 @@ fn main() -> ! {
                     continue 'main;
                 }
                 if textbox.append_char('.').is_err() {
-                    // All the warnings were already emitted in the `append_char()` method
+                    error!("Failed to append decimal point to textbox: CapacityError");
                     disp_error(&disp_refcell);
                     continue 'main;
                 }
@@ -259,7 +263,7 @@ fn main() -> ! {
                             disp_grave_error(&disp_refcell, Some(&mut delay));
                         }
                     };
-                } else if textbox.contains('-') { // Don't need the `&& !starts_with('-')` check, because that was already done above
+                } else if textbox.contains('-') {
                     error!("Textbox contains '-' not at the start, this should be impossible.");
                     disp_grave_error(&disp_refcell, Some(&mut delay));
                 } else {
@@ -285,7 +289,6 @@ fn main() -> ! {
             },
 
             '+' | '-' | '*' | '/' => {
-                // Clippy offered to collapse two nested ifs into one with &&
                 // The short-circuiting is desirable: if it's empty, we never run `parse_textbox()`
                 if !textbox.is_empty()
                     && let Err(e) = parse_textbox(&mut textbox, &mut stack, false)
@@ -293,7 +296,7 @@ fn main() -> ! {
                     match e {
                         CE::CapacityError |
                         CE::MathOverflow |
-                        CE::ParseIntError(IntErrorKindClone::PosOverflow | IntErrorKindClone::NegOverflow) => {
+                        CE::ParseIntError(IEKC::PosOverflow | IEKC::NegOverflow) => {
                             error!("Error parsing textbox: {:?}", e);
                             if let Err(e) = stack.draw(false) {
                                 defmt::panic!("Error with display: {:?}", e);
@@ -415,7 +418,7 @@ fn main() -> ! {
             '\x1B' => { // Escape character
                 let mut buf = [0_u8; 6]; // We read 6 bytes, because the escape sequence is usually up to 6 bytes long (not for all implementations, but for most common ones it is)
                 delay.delay_ms(50); // HACK: Wait a bit to allow the rest of the sequence to arrive.
-                let _ = rx.read_raw(&mut buf); // We ignore the result, since Ctrl-[ (that's Ctrl+ú on a Czech keyboard) produces only the escape character
+                let _ = rx.read_raw(&mut buf); // Nonblocking. We ignore the result, since Ctrl-[ (that's Ctrl+ú on a Czech keyboard) produces only the escape character
 
                 // TODO: Maybe even move the cursor around in the textbox?
 
@@ -508,16 +511,14 @@ fn main() -> ! {
 
             _ => {
                 warn!("Unhandled character received over UART: {:?} (0x{:X})", char_buf, buf[0]);
-                continue 'main; // Ignore the character
+                continue 'main;
             },
         }
     };
 }
 
 
-/// Display a simple error indication on the display.
-/// If `grave` is true, it inverts the display to indicate a grave error and resets,
-/// otherwise it only shows a simple error indication.
+/// Display the grave error image and reset the microcontroller after a delay, never returning.
 pub fn disp_grave_error<DI, SIZE>(
     disp_refcell: &RefCell<Ssd1306<DI, SIZE, BufferedGraphicsMode<SIZE>>>,
     maybe_delay: Option<&mut cortex_m::delay::Delay>
@@ -551,6 +552,7 @@ where
     cortex_m::peripheral::SCB::sys_reset(); // Reset the microcontroller
 }
 
+// Display the non-grave error image (on top-right corner) and return.
 pub fn disp_error<DI, SIZE> (
     disp_refcell: &RefCell<Ssd1306<DI, SIZE, BufferedGraphicsMode<SIZE>>>,
 ) where
@@ -596,7 +598,6 @@ where
         },
     }
 
-    // Moved down so that the compiler won't scream at me about borrowing issues
     textbox.clear();
     // We save ourselves a double flush call when drawing both, because I²C ops are slow and blocking
     stack.draw(false)?;

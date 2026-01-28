@@ -103,7 +103,7 @@ impl<'a> CustomStackBuilder<'a> {
             data: Vec::new(), // The <T, MAX_STACK_SIZE> is inferred from the type parameters in the struct definition
 
             disp_dimensions: self.disp_dimensions,
-            display_refcell: display_refcell,
+            display_refcell,
 
             character_style: self.character_style,
             primitives_style: self.primitives_style,
