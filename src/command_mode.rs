@@ -153,15 +153,14 @@ where
             stack.draw(true)?; // Just to be sure, we force a flush
         },
 
-        // Pattern matching at its finest!
-        brt_cmd if brt_cmd.starts_with("brt ")
-            || brt_cmd.starts_with("brightness ") => {
+        // It is possible to use an array of char-s in starts_with, but not strings, so this is the next best thing.
+        // https://stackoverflow.com/a/76964109
+        brt_cmd if ["brt", "brightness"].iter().any(|s| brt_cmd.starts_with(*s)) => {
             let split = brt_cmd.rsplit_once(" ")
                 .expect("Should contain a space; we checked in the match guard!");
 
             if split.0 != "brt" && split.0 != "brightness" {
-                error!("We already checked the command starts with 'brt ' or 'brightness ', why is the first split part not one of those?.
-Must've contained multiple spaces.");
+                error!("First part isn't \"brt\" nor \"brightness\", input must've contained multiple spaces.");
                 return Err(CE::BadInput);
             }
 
@@ -213,8 +212,7 @@ Must've contained multiple spaces.");
                 .expect("Should contain a space; we checked in the match guard!");
 
             if split.0 != "drop" {
-                error!("We already checked the command starts with 'drop ', why is the first split part not 'drop'?.
-Must've contained multiple spaces.");
+                error!("First part isn't \"drop\", input must've contained multiple spaces.");
                 return Err(CE::BadInput);
             }
 

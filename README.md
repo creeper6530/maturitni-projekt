@@ -9,7 +9,7 @@ You can render this file at https://markdownlivepreview.com/ if you don't alread
 - Raspberry Pi Debug Probe
   - You can use a second Pico in its place, see [here](https://www.raspberrypi.com/documentation/microcontrollers/pico-series.html#debugging-using-another-pico-series-device)
 - SSD1306-based OLED display
-  - Monochromatic
+  - Monochrome
   - 128x64 px
   - Capable of I²C interfacing
 - Some jumper wires
