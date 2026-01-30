@@ -58,7 +58,7 @@ At the smallest inbuilt font size, we can fit exactly 32 characters in a line,
 so that's why we use 32 here.
 
 If we had used i128-s (and didn't do fixed-point arithmetics with them),
-we'd've needed at most 40 bytes (the lenght of i128::MIN in decimal representation),
+we'd've needed at most 40 bytes (the length of i128::MIN in decimal representation),
 but that'd long overflow the display, so who cares? :D */
 const TEXT_BUFFER_SIZE: usize = 32;
 // ------------------------------------------------------------------------------------------------------------------------------------------------
@@ -110,16 +110,20 @@ impl<'a> CustomStackBuilder<'a> {
         }
     }
 
-    pub const fn set_disp_dimensions(&mut self, dimensions: DisplayDimensions) {
+    // Returning &mut Self allows chaining calls (like Builder.foo().bar().baz())
+    pub const fn set_disp_dimensions(&mut self, dimensions: DisplayDimensions) -> &mut Self {
         self.disp_dimensions = dimensions;
+        self
     }
 
-    pub const fn set_character_style(&mut self, character_style: MonoTextStyle<'a, BinaryColor>) {
+    pub const fn set_character_style(&mut self, character_style: MonoTextStyle<'a, BinaryColor>) -> &mut Self {
         self.character_style = character_style;
+        self
     }
 
-    pub const fn set_primitives_style(&mut self, primitives_style: PrimitiveStyle<BinaryColor>) {
+    pub const fn set_primitives_style(&mut self, primitives_style: PrimitiveStyle<BinaryColor>) -> &mut Self {
         self.primitives_style = primitives_style;
+        self
     }
 }
 
@@ -164,13 +168,11 @@ where
     /// 
     /// If `check_hint` is true, and the iterator has an upper size hint,
     /// and the hint indicates that pushing all elements would overflow the stack,
-    /// and the upper size hint would overflow the stack,
     /// the method returns an error with the array that could not be pushed as second element of the tuple
     /// (returning ownership back), instead of (possibly) panicking.
     pub fn push_iterator(&mut self, iter: impl Iterator<Item = T>, check_hint: bool)
     -> Result<(), (CustomError, impl IntoIterator<Item = T>)>
     {
-        // Short-circuiting is desirable here
         if check_hint // If the caller wants us to check the size hint
             && let Some(hint) = iter.size_hint().1 // If the iterator has an upper bound
             && self.data.len() + hint > MAX_STACK_SIZE // If it would actually overflow the stack
@@ -254,22 +256,17 @@ where
 
     /// Returns the last `n` values pushed onto the stack without removing them as a slice.
     /// If `n` is greater than the stack size, it returns the entire stack as a slice.
-    /// If the stack is empty, it returns `None`.
+    /// If the stack is empty, it returns an empty slice.
     /// 
     /// The topmost element is the last element in the returned slice.
-    /// 
-    /// For efficiency's sake, we return a slice.
-    pub fn multipeek(&self, n: u8) -> Option<&[T]> {
+    pub fn multipeek(&self, n: u8) -> &[T] {
         let n = n as usize; // Shadow the n parameter as usize for easier usage.
         // Perhaps simply changing the parameter type to usize would be better??? Not like it saves any memory, it likely gets passed in a register anyway.
         // TODO: Test it.
 
-        if self.data.is_empty() {
-            return None;
-        }
-
-        Some(&self.data[self.data.len().saturating_sub(n)..]) // Get the last `n` elements as a slice.
-        // The `saturating_sub` ensures that if n > len, we get 0 as the start index, effectively returning the entire stack.
+        &self.data[self.data.len().saturating_sub(n)..] // Get the last `n` elements as a slice.
+        // The `saturating_sub` ensures that if n > len, we get 0 as the start index, effectively returning the entire stack,
+        // even returning an empty slice if the stack is empty (desirable).
     }
 
     /// Clears the entire stack.
@@ -346,7 +343,7 @@ where
         // Possibly gate this behind a defmt feature flag if we move this into a library crate
         trace!("Drawing {} lines on the display.", num_lines);
 
-        let text_vec = self.multipeek(num_lines).expect("We just checked the Vec is empty!");
+        let topmost_data = self.multipeek(num_lines);
 
         // Borrow the display RefCell at the end, to minimize the critical section
         // It would be a giant lifetime PITA to try and push the Text-s into a Vec and then draw them later, tho.
@@ -359,15 +356,14 @@ where
 
         let mut buf = String::<TEXT_BUFFER_SIZE>::new();
 
-        for i in (0..num_lines).rev() {
-            let i_usize = i as usize; // Convert to usize for indexing
-
-            core::write!(&mut buf, "{}", text_vec[i_usize])?;
-            let text = buf.as_str();
+        // We need usize for indexing
+        for i in (0..num_lines as usize).rev() {
+            core::write!(&mut buf, "{}", topmost_data[i])?; // Format the text as Display into the buffer
 
             Text::with_baseline(
-                text,
-                (0, ((self.character_style.font.character_size.height as u8 - PIXELS_REMOVED) * i) as i32).into(),
+                buf.as_str(),
+                // Yes, I know, ugly cast chain. But even a 1-year-old project like this one has legacy code spaghetti sometimes :D
+                (0, ((self.character_style.font.character_size.height as u8 - PIXELS_REMOVED) * i as u8) as i32).into(),
                 self.character_style,
                 Baseline::Top
             )

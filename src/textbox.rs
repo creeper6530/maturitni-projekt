@@ -57,7 +57,8 @@ const TEXTBOX_CURSOR: bool = true;
 // HACK: Evaluate the block of code at compile time to assert that constants aren't malformed
 const fn _check_consts() {
     if TEXTBOX_CURSOR && TEXTBOX_OFFSET < CURSOR_HEIGHT {
-        core::panic!("Enabled cursor, but without having given space for it!")
+        core::panic!("Enabled cursor, but without having given space for it!
+TEXTBOX_OFFSET must not be less than CURSOR_HEIGHT if TEXTBOX_CURSOR is true.");
     }
 }
 const _: () = _check_consts();
@@ -158,20 +159,25 @@ impl<'a> CustomTextboxBuilder<'a> {
         }
     }
 
-    pub const fn set_disp_dimensions(&mut self, dimensions: DisplayDimensions) {
+    // Returning &mut Self allows chaining calls (like Builder.foo().bar().baz())
+    pub const fn set_disp_dimensions(&mut self, dimensions: DisplayDimensions) -> &mut Self {
         self.disp_dimensions = dimensions;
+        self
     }
 
-    pub const fn set_character_style(&mut self, character_style: MonoTextStyle<'a, BinaryColor>) {
+    pub const fn set_character_style(&mut self, character_style: MonoTextStyle<'a, BinaryColor>) -> &mut Self {
         self.character_style = character_style;
+        self
     }
 
-    pub const fn set_primitives_style(&mut self, primitives_style: PrimitiveStyle<BinaryColor>) {
+    pub const fn set_primitives_style(&mut self, primitives_style: PrimitiveStyle<BinaryColor>) -> &mut Self {
         self.primitives_style = primitives_style;
+        self
     }
 
-    pub const fn set_primitives_alternate_style(&mut self, primitives_alternate_style: PrimitiveStyle<BinaryColor>) {
+    pub const fn set_primitives_alternate_style(&mut self, primitives_alternate_style: PrimitiveStyle<BinaryColor>) -> &mut Self {
         self.primitives_alternate_style = primitives_alternate_style;
+        self
     }
 }
 

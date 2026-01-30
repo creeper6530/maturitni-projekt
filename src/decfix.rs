@@ -248,8 +248,8 @@ impl Neg for DecimalFixed {
 
     fn neg(self) -> Self::Output {
         if self.is_zero() { return Ok(self) }; // Negating zero is still zero
-        if self.value == i64::MIN { return Err( CE::MathOverflow ) }; // Negating i64::MIN would overflow
-        Ok ( DecimalFixed { value: -self.value, exponent: self.exponent } )
+        let neg_value = self.value.checked_neg().ok_or(CE::MathOverflow)?; // Negating i64::MIN would overflow
+        Ok ( DecimalFixed { value: neg_value, exponent: self.exponent } )
     }
 }
 
