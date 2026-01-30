@@ -376,6 +376,44 @@ fn main() -> ! {
                 textbox.draw(true).expect("Error with display");
             },
 
+            '\x14' => { // Ctrl-T - alias for Ctrl-Alt-T (e.g. for Linux users)
+                // XXX: Please take care to keep this in sync with the Ctrl-Alt-T handler below
+                match handle_commands(&rx, &disp_refcell, &mut textbox, &mut stack) {
+                    Ok(()) => {},
+                    Err(e) => {
+                        match e {
+                            CE::BadInput |
+                            CE::ParseIntError(_) |
+                            CE::CapacityError => {
+                                {
+                                    let mut disp = disp_refcell.borrow_mut();
+                                    disp.set_invert(false).expect("Failed to invert display");
+                                }
+
+                                textbox.clear();
+                                stack.draw(false).expect("Error with display");
+                                textbox.draw(false).expect("Error with display");
+
+                                disp_error(&disp_refcell);
+                            },
+                            CE::Cancelled => { // Not truly an error, just a notification
+                                info!("Command mode cancelled by user.");
+                                textbox.draw(true).expect("Error with display");
+                            },
+                            CE::DisplayError(e) => defmt::panic!("Error with display: {:?}", e),
+                            other => {
+                                error!("An irrecoverable or otherwise unhandled error: {:?}", other);
+                                {
+                                    let mut disp = disp_refcell.borrow_mut();
+                                    disp.set_invert(false).expect("Failed to invert display");
+                                }
+                                disp_grave_error(&disp_refcell, Some(&mut delay));
+                            }
+                        }
+                    }
+                };
+            },
+
             '\x1B' => { // Escape character
                 let mut buf = [0_u8; 6]; // We read 6 bytes, because the escape sequence is usually up to 6 bytes long (not for all implementations, but for most common ones it is)
                 delay.delay_ms(50); // HACK: Wait a bit to allow the rest of the sequence to arrive.
@@ -404,6 +442,7 @@ fn main() -> ! {
                         error!("Decide whether to implement Delete key as a backspace alias or something else (like dropping the top of the stack?)");
                     },
                     [b'\x14', ..] => { // Ctrl-Alt-T
+                        // XXX: Please take care to keep this in sync with the Ctrl-T handler above
                         match handle_commands(&rx, &disp_refcell, &mut textbox, &mut stack) {
                             Ok(()) => {},
                             Err(e) => {
