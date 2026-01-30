@@ -216,10 +216,10 @@ where
                 return Err(CE::BadInput);
             }
 
-            let count = split.1.parse::<u8>()?;
+            let count = split.1.parse::<usize>()?;
             // This checks if the stack isn't empty as well in sort of a roundabout way
             // (non-zero count will always be greater than stack size if stack is empty)
-            if (count == 0) || (count as usize > stack.len()) {
+            if (count == 0) || (count > stack.len()) {
                 return Err(CE::BadInput);
             }
 
@@ -227,7 +227,7 @@ where
 
             // We need this, can't rely on macro debug_assert_eq!()
             #[cfg(debug_assertions)]
-            defmt::assert_eq!(iter.count(), count as usize); // Counting the number of stuff popped
+            defmt::assert_eq!(iter.count(), count); // Counting the number of stuff popped
             // (consuming the iterator in the process), and asserting that it's as expected.
 
             // With this attribute, compiler is happy that iterator gets consumed before `draw()` no matter what

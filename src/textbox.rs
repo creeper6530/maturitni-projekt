@@ -39,7 +39,7 @@ use crate::custom_error::{ // Because we already have the `mod` in `main.rs`
 so with this constant we basically cut off the top `n` pixels.
 
 Please maintain consistency with `textbox.rs`. */
-const PIXELS_REMOVED: u8 = 2;
+const PIXELS_REMOVED: u32 = 2;
 /// Size of String-s used for buffering text during writes, and for the textbox
 const TEXT_BUFFER_SIZE: usize = 32;
 /** Number of pixels to offset the textbox from the bottom of the display by.
@@ -47,10 +47,10 @@ const TEXT_BUFFER_SIZE: usize = 32;
 This constant shall be determined by the programmer,
 as we won't know the font size at compile time,
 and going off of defaults beats the point of the ability to change the defaults. */
-const TEXTBOX_OFFSET: u8 = 3;
+const TEXTBOX_OFFSET: u32 = 3;
 /// Determines the height of the cursor in pixels.
 /// Disregarded if `TEXTBOX_CURSOR` is false.
-const CURSOR_HEIGHT: u8 = 3;
+const CURSOR_HEIGHT: u32 = 3;
 /// Whether to draw a cursor under the text of the textbox.
 const TEXTBOX_CURSOR: bool = true;
 
@@ -67,12 +67,12 @@ const _: () = _check_consts();
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct DisplayDimensions {
-    pub width: u8,
-    pub height: u8,
+    pub width: u32,
+    pub height: u32,
 }
 
-impl From<(u8, u8)> for DisplayDimensions {
-    fn from(dimensions: (u8, u8)) -> Self {
+impl From<(u32, u32)> for DisplayDimensions {
+    fn from(dimensions: (u32, u32)) -> Self {
         DisplayDimensions {
             width: dimensions.0,
             height: dimensions.1,
@@ -206,7 +206,7 @@ where
     SIZE: DisplaySize,
 {
     pub fn draw(&self, flush: bool) -> Result<(), CustomError> {
-        let text_height = self.character_style.font.character_size.height as u8 - PIXELS_REMOVED;
+        let text_height = self.character_style.font.character_size.height - PIXELS_REMOVED;
         let textbox_height = text_height + TEXTBOX_OFFSET;
 
         let mut display_refmut = self.display_refcell.borrow_mut();
@@ -219,12 +219,12 @@ where
         
         // Clearing rectangle so that we don't draw over previously present text
         Rectangle::with_corners(
-            (0, self.disp_dimensions.height as i32 - 1).into(), // Bottom right corner
+            (0, self.disp_dimensions.height - 1).try_into()?, // Bottom right corner
             // (even though the method itself doesn't care, any two diagonally opposite corners would fly)
             (
-                self.disp_dimensions.width as i32 - 1,
-                (self.disp_dimensions.height - textbox_height) as i32
-            ).into() // Top left corner
+                self.disp_dimensions.width - 1,
+                (self.disp_dimensions.height - textbox_height)
+            ).try_into()? // Top left corner
         )
         .into_styled(self.primitives_alternate_style)
         .draw(display_ref)?;
@@ -232,7 +232,7 @@ where
         // The actual text
         Text::with_baseline(
             self.text.as_str(),
-            (0, (self.disp_dimensions.height - textbox_height) as i32).into(), // Top left corner
+            (0, (self.disp_dimensions.height - textbox_height)).try_into()?, // Top left corner
             self.character_style,
             Baseline::Top
         )
@@ -242,12 +242,12 @@ where
         if TEXTBOX_CURSOR {
             Rectangle::new(
                 (
-                    self.text.chars().count() as i32 * self.character_style.font.character_size.width as i32, 
-                    (self.disp_dimensions.height - CURSOR_HEIGHT) as i32
-                ).into(),
+                    self.text.chars().count() as u32 * self.character_style.font.character_size.width, 
+                    (self.disp_dimensions.height - CURSOR_HEIGHT)
+                ).try_into()?,
                 (
                     self.character_style.font.character_size.width,
-                    (CURSOR_HEIGHT) as u32
+                    CURSOR_HEIGHT
                 ).into()
             )
             .into_styled(self.primitives_style)

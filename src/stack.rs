@@ -49,7 +49,7 @@ const MAX_STACK_SIZE: usize = 256;
 so with this constant we basically cut off the top `n` pixels.
 
 Please maintain consistency with `textbox.rs`. */
-const PIXELS_REMOVED: u8 = 2;
+const PIXELS_REMOVED: u32 = 2;
 /// Size of String-s used for buffering text during drawing
 /* We do an engineer's estimate that 32 bytes is enough for one line,
 since we can't compute it dynamically from font size (which isn't constant).
@@ -233,7 +233,7 @@ where
     /// 
     /// The topmost element of the stack is the **FIRST** item yielded by the iterator
     /// (unless using `next_back()`), unlike `multipeek()`.
-    pub fn multipop(&mut self, n: u8) -> Option<impl DoubleEndedIterator<Item = T>> {
+    pub fn multipop(&mut self, n: usize) -> Option<impl DoubleEndedIterator<Item = T>> {
     // See https://doc.rust-lang.org/stable/book/ch10-02-traits.html#returning-types-that-implement-traits for explanation of what we're returning here.
         if self.data.is_empty() {
             return None;
@@ -243,7 +243,7 @@ where
         // If the iterator is dropped before it's fully consumed, the data is still removed from the stack.
         // Thanks to saturating_sub, we don't have to check if n > len here.
         Some(
-            self.data.drain(self.data.len().saturating_sub(n as usize)..)
+            self.data.drain(self.data.len().saturating_sub(n)..)
                 .rev()
         )
     }
@@ -259,11 +259,7 @@ where
     /// If the stack is empty, it returns an empty slice.
     /// 
     /// The topmost element is the last element in the returned slice.
-    pub fn multipeek(&self, n: u8) -> &[T] {
-        let n = n as usize; // Shadow the n parameter as usize for easier usage.
-        // Perhaps simply changing the parameter type to usize would be better??? Not like it saves any memory, it likely gets passed in a register anyway.
-        // TODO: Test it.
-
+    pub fn multipeek(&self, n: usize) -> &[T] {
         &self.data[self.data.len().saturating_sub(n)..] // Get the last `n` elements as a slice.
         // The `saturating_sub` ensures that if n > len, we get 0 as the start index, effectively returning the entire stack,
         // even returning an empty slice if the stack is empty (desirable).
@@ -310,12 +306,12 @@ where
 {
     pub fn draw(&self, flush: bool) -> Result<(), CustomError> {
         // A convenience variable
-        let text_height = (self.character_style.font.character_size.height - PIXELS_REMOVED as u32) as u8;
+        let text_height = self.character_style.font.character_size.height - PIXELS_REMOVED;
         
         // Clear the area where the stack will be drawn
         let clear_rect = Rectangle::new(
             (0, 0).into(),
-            (self.disp_dimensions.width as u32, (text_height * ((self.disp_dimensions.height / text_height) - 1)) as u32).into() // We always clear the entire area, e.g. when popping elements
+            (self.disp_dimensions.width, (text_height * ((self.disp_dimensions.height / text_height) - 1))).into() // We always clear the entire area, e.g. when popping elements
         )
         .into_styled(self.primitives_style);
 
@@ -334,10 +330,10 @@ where
 
         // If there is less data than the display can show, we just draw all of it.
         // In that case, we will "hang" the stack visually from the top of the display (desirable).
-        let num_lines = min(
-            self.data.len() as u8,
-            (self.disp_dimensions.height / text_height // Integer division: always rounded down (desirable here)
-            ) - 1 // -1 because we want to leave space for the bottom line
+        let num_lines: usize = min(
+            self.data.len(),
+            (self.disp_dimensions.height / text_height) as usize // Integer division: always rounded down (desirable here)
+            - 1 // -1 because we want to leave space for the bottom line
         );
 
         // Possibly gate this behind a defmt feature flag if we move this into a library crate
@@ -357,13 +353,12 @@ where
         let mut buf = String::<TEXT_BUFFER_SIZE>::new();
 
         // We need usize for indexing
-        for i in (0..num_lines as usize).rev() {
+        for i in (0..num_lines).rev() {
             core::write!(&mut buf, "{}", topmost_data[i])?; // Format the text as Display into the buffer
 
             Text::with_baseline(
                 buf.as_str(),
-                // Yes, I know, ugly cast chain. But even a 1-year-old project like this one has legacy code spaghetti sometimes :D
-                (0, ((self.character_style.font.character_size.height as u8 - PIXELS_REMOVED) * i as u8) as i32).into(),
+                (0, ((self.character_style.font.character_size.height - PIXELS_REMOVED) * i as u32)).try_into()?,
                 self.character_style,
                 Baseline::Top
             )

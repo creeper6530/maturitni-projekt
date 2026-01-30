@@ -12,13 +12,13 @@ use crate::custom_error::{ // Because we already have the `mod` in `main.rs`
     CE // Short type alias
 };
 
-const DEFAULT_EXPONENT: i8 = -9;
+const DEFAULT_EXPONENT: i32 = -9;
 const PARSING_BUFFER_SIZE: usize = 16; // Buffer size for padding fractional parts when parsing strings
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, DefmtFormat)]
 pub struct DecimalFixed {
     value: i64, // The actual, logical value is (value * 10^exponent)
-    exponent: i8,
+    exponent: i32,
 }
 
 impl Display for DecimalFixed {
@@ -34,9 +34,12 @@ impl Display for DecimalFixed {
             },
             Ordering::Greater => {
                 // The parameter `width` can (and here will) be taken from a local variable
-                let width = self.exponent as usize;
+                // No idea why we need to cast width to usize here, but the macro demands it
+                // The unsigned_abs() is basically a safe way to get the absolute value of an i32 as u32
+                let width = self.exponent.unsigned_abs() as usize;
 
                 // Write the value, then the trailing zeroes repeated `self.exponent` times
+                // No idea why we need to cast width to usize here
                 write!(f, "{}{:0>width$}", self.value, "")?;
 
                 /* Explanation:
@@ -58,7 +61,8 @@ impl Display for DecimalFixed {
                 }
 
                 let value = self.value.abs();
-                let pow = 10_i64.pow((-self.exponent) as u32);
+                let width = self.exponent.unsigned_abs();
+                let pow = 10_i64.pow(self.exponent.unsigned_abs());
 
                 let whole_part = value / pow; // Integer division by power of ten truncates away last digits
                 let mut fractional_part = value % pow; // Integer modulo by power of ten gets the discarded last digits back
@@ -66,7 +70,7 @@ impl Display for DecimalFixed {
                 write!(f, "{}", whole_part)?;
                 if fractional_part == 0 { break 'exit_match } // Since we're in a labelled block, we can short-circuit to its end
 
-                let mut width = (-self.exponent) as usize;
+                let mut width = width as usize;
                 while fractional_part % 10 == 0 { // While there would be trailing zeroes present
                     fractional_part /= 10; // Divide by ten in place to remove trailing zeroes from the fractional part
                     width -= 1; // Decrement the width accordingly so that we don't turn 3.1400 into 3.0014
@@ -93,7 +97,7 @@ impl DecimalFixed {
     /// 
     /// Pass None as exponent to use the default exponent defined by a const.
     /// Use new_prescaled() if you already have the scaled value.
-    pub fn new(value: i64, exponent: Option<i8>) -> Result<Self, CustomError> {
+    pub fn new(value: i64, exponent: Option<i32>) -> Result<Self, CustomError> {
         let exponent = exponent.unwrap_or(DEFAULT_EXPONENT);
         
         match exponent.cmp(&0) {
@@ -102,14 +106,14 @@ impl DecimalFixed {
             },
             Ordering::Greater => {
                 // Scaling down - dividing value by 10^exponent
-                let scaled_value = value / 10_i64.pow(exponent as u32);
+                let scaled_value = value / 10_i64.pow(exponent.unsigned_abs());
 
                 Ok( Self { value: scaled_value, exponent } )
             },
             Ordering::Less => {
                 // Scaling up - dividing value by 10^(-exponent) - multiplying by 10^(exponent) to stay in integers
                 let scaled_value = value.checked_mul(
-                    10_i64.pow((-exponent) as u32)
+                    10_i64.pow(exponent.unsigned_abs())
                 ).ok_or(CE::MathOverflow)?;
 
                 Ok( Self { value: scaled_value, exponent } )
@@ -119,7 +123,7 @@ impl DecimalFixed {
 
     /// Creates a new DecimalFixed with the given value and exponent, without any scaling.
     /// Please ensure that the value you provide is already scaled correctly, otherwise, use new().
-    pub fn new_prescaled(value: i64, exponent: i8) -> Self {
+    pub fn new_prescaled(value: i64, exponent: i32) -> Self {
         Self { value, exponent }
     }
 
@@ -127,11 +131,11 @@ impl DecimalFixed {
     /// or the default exponent specified in a const if you pass None.
     /// 
     /// If the string has a fractional part that isn't the correct size, it will be truncated/padded to fit the exponent.
-    pub fn parse_str(s: &str, exp: Option<i8>) -> Result<Self, CustomError> {
+    pub fn parse_str(s: &str, exp: Option<i32>) -> Result<Self, CustomError> {
         let exp = exp.unwrap_or(DEFAULT_EXPONENT);
-        let minus_exp = -exp as usize;
-
         if exp >= 0 { return Err(CE::Unimplemented) }; // TODO: Handle this case if needed
+        let minus_exp = exp.unsigned_abs(); // Changes type to unsigned
+
         if s.is_empty() { return Err( CE::BadInput ) };
 
         let mut iter = s.splitn(2, '.'); // Split into at most two parts, at the first dot from left
@@ -140,7 +144,7 @@ impl DecimalFixed {
         let whole_part = whole_part.parse::<i64>()?;
 
         let mut value = whole_part.checked_mul(
-            10_i64.pow(minus_exp as u32)
+            10_i64.pow(minus_exp)
         ).ok_or(CE::MathOverflow)?;
 
         let frac_part_option = iter.next();
@@ -150,9 +154,9 @@ impl DecimalFixed {
             // Declare uninitialized here so that it lives long enough
             // (because `processed` references it)
             let mut buf_string;
-            let processed: &str = match frac_part.len().cmp(&minus_exp) {
+            let processed: &str = match frac_part.len().cmp(&(minus_exp as usize)) {
                 Ordering::Equal => frac_part,
-                Ordering::Greater => &frac_part[..(minus_exp)], // Truncate
+                Ordering::Greater => &frac_part[..(minus_exp as usize)], // Truncate
                 Ordering::Less => { // Pad with zeroes
                     // So far have not found a way to do this without a String, since we need it to be mutable
 
@@ -160,7 +164,7 @@ impl DecimalFixed {
                     //buf_string = format!(20; "{:0<width$}", fractional_part_str, width = minus_exp)?;
                     buf_string = String::<PARSING_BUFFER_SIZE>::from_str(frac_part)?;
 
-                    for _ in 0..(minus_exp - frac_part.len()) {
+                    for _ in 0..(minus_exp as usize - frac_part.len()) {
                         buf_string.push('0')?;
                     }
                     buf_string.as_str()
@@ -208,7 +212,7 @@ impl Add for DecimalFixed {
             },
             Ordering::Greater => {
                 let adjusted_self_value = self.value.checked_mul(
-                    10_i64.pow((self.exponent - other.exponent) as u32)
+                    10_i64.pow((self.exponent - other.exponent).unsigned_abs())
                 ).ok_or(CE::MathOverflow)?;
 
                 Ok( DecimalFixed{ 
@@ -220,7 +224,7 @@ impl Add for DecimalFixed {
             },
             Ordering::Less => {
                 let adjusted_other_value = other.value.checked_mul(
-                    10_i64.pow((self.exponent - other.exponent) as u32)
+                    10_i64.pow((self.exponent - other.exponent).unsigned_abs())
                 ).ok_or(CE::MathOverflow)?;
 
                 Ok( DecimalFixed{
@@ -272,7 +276,7 @@ impl Mul for DecimalFixed {
 
         // We do 10_i64 so that we don't need 4.4KiB of i128::pow()
         // Yes, it's silly to do microoptimisation in this project, but I enjoy it in some twisted way.
-        let scale_factor: i128 = i128::from(10_i64.pow(self.exponent.unsigned_abs() as u32));
+        let scale_factor: i128 = i128::from(10_i64.pow(self.exponent.unsigned_abs()));
         let end_value: i128 = if self.exponent >= 0 {
             scaled_end_value.checked_mul(scale_factor).ok_or(CE::MathOverflow)?
         } else {
@@ -299,7 +303,7 @@ impl Div for DecimalFixed {
 
         // We do 10_i64 so that we don't need 4.4KiB of i128::pow()
         // Yes, it's silly.
-        let scale_factor: i128 = i128::from(10_i64.pow(self.exponent.unsigned_abs() as u32));
+        let scale_factor: i128 = i128::from(10_i64.pow(self.exponent.unsigned_abs()));
         let scaled_self_value: i128 = if self.exponent >= 0 {
             i128::from(self.value) / scale_factor
         } else {
