@@ -23,7 +23,7 @@ use rp2040_hal::{
     watchdog::Watchdog,
 };
 use core::cell::RefCell;
-use embedded_graphics::{image::Image, prelude::*};
+use embedded_graphics::{image::Image, prelude::*, pixelcolor::BinaryColor};
 use ssd1306::{Ssd1306, mode::BufferedGraphicsMode, prelude::*};
 use tinybmp::Bmp;
 use heapless::Vec;
@@ -48,6 +48,9 @@ use command_mode::handle_commands;
 #[unsafe(link_section = ".boot2")]
 #[used]
 pub static BOOT2: [u8; 256] = rp2040_boot2::BOOT_LOADER_W25Q080;
+
+pub const GRAVE_ERROR_BMP: Result<Bmp<'static, BinaryColor>, tinybmp::ParseError> = Bmp::from_slice(include_bytes!("calc_grave_err.bmp"));
+const ERROR_BMP: Result<Bmp<'static, BinaryColor>, tinybmp::ParseError> = Bmp::from_slice(include_bytes!("calc_err.bmp"));
 
 #[inline]
 pub fn get_timestamp_us() -> u64 {
@@ -474,7 +477,8 @@ where
     let mut disp = disp_refcell.borrow_mut();
 
     // Converted at https://convertico.com/png-to-bmp/ to 1-bit BMP
-    let bmp = Bmp::from_slice(include_bytes!("calc_grave_err.bmp")).expect("Failed to load grave error image from memory. Image data must be malformed.");
+    let bmp = GRAVE_ERROR_BMP
+        .expect("Failed to load grave error image from memory. Image data must be malformed.");
     let img = Image::new(
         &bmp,
         (0, 0).into(), // Fullscreen
@@ -499,7 +503,8 @@ pub fn disp_error<DI, SIZE> (
 {
     let mut disp = disp_refcell.borrow_mut();
 
-    let bmp = Bmp::from_slice(include_bytes!("calc_err.bmp")).expect("Failed to load error image from memory. Image data must be malformed.");
+    let bmp = ERROR_BMP
+        .expect("Failed to load error image from memory. Image data must be malformed.");
     let img = Image::new(
         &bmp,
         (117, 0).into(), // Image is 10x10, we put it in the top-right corner

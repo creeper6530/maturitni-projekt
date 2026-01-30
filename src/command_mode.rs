@@ -4,7 +4,6 @@ use heapless::Vec;
 
 use embedded_graphics::{image::Image, prelude::*};
 use ssd1306::{prelude::*, Ssd1306, mode::BufferedGraphicsMode};
-use tinybmp::Bmp;
 
 use core::cell::RefCell;
 use core::ops::DerefMut;
@@ -16,6 +15,7 @@ use crate::custom_error::{
     CustomError,
     CE // Short type alias
 };
+use crate::GRAVE_ERROR_BMP;
 
 /// # List of commands:
 /// 
@@ -317,7 +317,7 @@ where
     let mut disp = disp_refcell.borrow_mut();
 
     // Converted at https://convertico.com/png-to-bmp/ to 1-bit BMP
-    let bmp = Bmp::from_slice(include_bytes!("calc_grave_err.bmp"))
+    let bmp = GRAVE_ERROR_BMP
         .expect("Failed to load grave error image from memory. Image data must be malformed.");
     let img = Image::new(
         &bmp,
