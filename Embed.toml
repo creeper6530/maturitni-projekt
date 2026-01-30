@@ -25,9 +25,9 @@ connect_under_reset = false
 
 [default.rtt]
 enabled = true
-up_mode = "BlockIfFull" # Edited from template; we don't wanna lose data
+up_mode = "NoBlockSkip"
 channels = [
-    { up = 0, down = 0, name = "name", up_mode = "BlockIfFull", format = "Defmt" }, # Also edited
+    { up = 0, down = 0, name = "name", up_mode = "NoBlockSkip", format = "Defmt" },
 ]
 timeout = 3000
 show_timestamps = true
