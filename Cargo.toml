@@ -2,13 +2,12 @@
 edition = "2024"
 name = "maturitni-projekt"
 version = "0.1.0"
-license = "MIT"
+license = "MIT OR Apache-2.0"
 
 [dependencies]
-cortex-m = "0.7"
+cortex-m = { version = "0.7", features = ["inline-asm"] } # Bumps cortex-m's MSRV to 1.59, a non-issue
 cortex-m-rt = "0.7"
 embedded-hal = "1"
-critical-section = "1"
 heapless = { version = "0.9", features = ["defmt"] }
 
 defmt = "1"
@@ -21,25 +20,26 @@ rp2040-boot2 = "0.3"
 ssd1306 = "0.10"
 embedded-graphics = { version = "0.8", features = ["defmt"] }
 tinybmp = "0.6"
+display-interface = { version = "0.5", features = ["defmt-03"] }
 
 [lints.clippy]
-needless_return = "allow"
+upper_case_acronyms = "allow"
 
 # cargo build/run
 [profile.dev]
-codegen-units = 1
+codegen-units = 256 # Edited for faster compilation
 debug = "full"
 debug-assertions = true
-incremental = false
+incremental = true # Edited for faster compilation
 opt-level = 0 # Edited
 overflow-checks = true
 
 # cargo build/run --release
 [profile.release]
-codegen-units = 1
+codegen-units = 1 # Kept at 1 to keep runtime at maximum speed
 debug = "none" # Edited
 debug-assertions = false
-incremental = false
+incremental = false # Incremental aren't recommended for release builds
 lto = 'fat'
 opt-level = 3
 overflow-checks = false

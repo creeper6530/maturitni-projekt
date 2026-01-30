@@ -1,0 +1,373 @@
+use embedded_graphics::{
+    prelude::*,
+    pixelcolor::BinaryColor,
+
+    mono_font::{
+//        ascii::FONT_6X12,
+        iso_8859_2::FONT_6X12 as ISO_FONT_6X12,
+        MonoTextStyle
+    },
+    text::{
+        Baseline,
+        Text,
+    },
+
+    primitives::{
+        PrimitiveStyle,
+        PrimitiveStyleBuilder,
+        Rectangle,
+    },
+};
+use ssd1306::{
+    Ssd1306,
+    prelude::*,
+    mode::BufferedGraphicsMode,
+};
+
+use heapless::{Vec, String};
+use core::{
+    cell::RefCell,
+    cmp::min,
+    fmt::Write,
+};
+
+// Possibly gate this behind a defmt feature flag if we move this into a library crate
+use defmt::trace; // For logging in `draw()` (nowhere else)
+
+use crate::custom_error::{ // Because we already have the `mod` in `main.rs`
+    CustomError,
+    CE // Short type alias
+};
+use crate::textbox::DisplayDimensions;
+
+// ------------------------------------------------------------------------------------------------------------------------------------------------
+
+// Compile time constants
+/// Maximum size of the stack
+const MAX_STACK_SIZE: usize = 256;
+/** The fonts we use usually have unused pixels at the top that'd waste space,
+so with this constant we basically cut off the top `n` pixels.
+
+Please maintain consistency with `textbox.rs`. */
+const PIXELS_REMOVED: u32 = 2;
+/// Size of String-s used for buffering text during drawing
+/* We do an engineer's estimate that 32 bytes is enough for one line,
+since we can't compute it dynamically from font size (which isn't constant).
+It's true that we don't wanna waste memory, but better safe than sorry.
+At the smallest inbuilt font size, we can fit exactly 32 characters in a line,
+so that's why we use 32 here.
+
+If we had used i128-s (and didn't do fixed-point arithmetics with them),
+we'd've needed at most 40 bytes (the length of i128::MIN in decimal representation),
+but that'd long overflow the display, so who cares? :D */
+const TEXT_BUFFER_SIZE: usize = 32;
+// ------------------------------------------------------------------------------------------------------------------------------------------------
+
+pub struct CustomStackBuilder<'a> {
+    disp_dimensions: DisplayDimensions,
+    character_style: MonoTextStyle<'a, BinaryColor>,
+    primitives_style: PrimitiveStyle<BinaryColor>,
+}
+
+#[allow(dead_code)]
+impl<'a> CustomStackBuilder<'a> {
+    /// Creates a new `CustomStackBuilder` with the default display dimensions of 128x64 pixels
+    /// and the default text style.
+    /// For custom parameters, use the builder pattern.
+    pub const fn new() -> Self {
+        CustomStackBuilder::<'a> {
+            disp_dimensions: DisplayDimensions::const_default(),
+
+            // Standard white text on (by default) transparent background
+            character_style: MonoTextStyle::new(&ISO_FONT_6X12, BinaryColor::On),
+
+            // Standard black stroke and fill (i.e. all black, effectively erasing anything drawn below it)
+            primitives_style: PrimitiveStyleBuilder::new()
+                .stroke_color(BinaryColor::Off)
+                .fill_color(BinaryColor::Off)
+                .build(),
+        }
+    }
+
+    /// Build the builder pattern into a finished struct, copying currently set parameters,
+    /// initialising empty ones and storing the RefCell provided as a parameter.
+    pub fn build<T, DI, SIZE>(
+        self,
+        display_refcell: &'a RefCell<Ssd1306<DI, SIZE, BufferedGraphicsMode<SIZE>>>
+    ) -> CustomStack<'a, T, DI, SIZE>
+    where
+        DI: WriteOnlyDataCommand,
+        SIZE: DisplaySize,
+    {
+        CustomStack {
+            data: Vec::new(), // The <T, MAX_STACK_SIZE> is inferred from the type parameters in the struct definition
+
+            disp_dimensions: self.disp_dimensions,
+            display_refcell,
+
+            character_style: self.character_style,
+            primitives_style: self.primitives_style,
+        }
+    }
+
+    // Returning &mut Self allows chaining calls (like Builder.foo().bar().baz())
+    pub const fn set_disp_dimensions(&mut self, dimensions: DisplayDimensions) -> &mut Self {
+        self.disp_dimensions = dimensions;
+        self
+    }
+
+    pub const fn set_character_style(&mut self, character_style: MonoTextStyle<'a, BinaryColor>) -> &mut Self {
+        self.character_style = character_style;
+        self
+    }
+
+    pub const fn set_primitives_style(&mut self, primitives_style: PrimitiveStyle<BinaryColor>) -> &mut Self {
+        self.primitives_style = primitives_style;
+        self
+    }
+}
+
+// ------------------------------------------------------------------------------------------------------------------------------------------------
+
+#[allow(dead_code)]
+pub struct CustomStack<'a, T, DI, SIZE>
+where
+    DI: WriteOnlyDataCommand,
+    SIZE: DisplaySize,
+{
+    data: Vec<T, MAX_STACK_SIZE>,
+
+    disp_dimensions: DisplayDimensions,
+    display_refcell: &'a RefCell<Ssd1306<DI, SIZE, BufferedGraphicsMode<SIZE>>>,
+
+    character_style: MonoTextStyle<'a, BinaryColor>,
+    primitives_style: PrimitiveStyle<BinaryColor>,
+}
+
+#[allow(dead_code)]
+impl<'a, T, DI, SIZE> CustomStack<'a, T, DI, SIZE>
+where
+    DI: WriteOnlyDataCommand,
+    SIZE: DisplaySize,
+{
+    /// Pushes a value onto the stack.
+    /// We need ownership of the value to push it onto the stack.
+    /// 
+    /// In Err we return a tuple including the value that was attempted to be pushed,
+    /// so that the caller can decide what to do with it.
+    pub fn push(&mut self, value: T) -> Result<(), (CustomError, T)> {
+        self.data.push(value).map_err(|t| (CE::CapacityError, t))
+    }
+
+    /// Pushes multiple values onto the stack from any IntoIterator that gives us ownership of T.
+    /// If the stack does not have enough space for all values, it panics.
+    /// 
+    /// For owned arrays with const size, prefer `push_array()`.
+    /// For slices that are composed of Clone types, prefer `push_slice()`.
+    /// For exact-size iterators, prefer `push_exact_iterator()` that can't panic.
+    /// 
+    /// If `check_hint` is true, and the iterator has an upper size hint,
+    /// and the hint indicates that pushing all elements would overflow the stack,
+    /// the method returns an error with the array that could not be pushed as second element of the tuple
+    /// (returning ownership back), instead of (possibly) panicking.
+    pub fn push_iterator(&mut self, iter: impl Iterator<Item = T>, check_hint: bool)
+    -> Result<(), (CustomError, impl IntoIterator<Item = T>)>
+    {
+        if check_hint // If the caller wants us to check the size hint
+            && let Some(hint) = iter.size_hint().1 // If the iterator has an upper bound
+            && self.data.len() + hint > MAX_STACK_SIZE // If it would actually overflow the stack
+        {
+            return Err((CE::CapacityError, iter));
+        }
+
+        self.data.extend(iter);
+        Ok(())
+    }
+
+    /// Pushes multiple values onto the stack from an exact-size iterator that gives us ownership of T.
+    /// If the stack does not have enough space for all values, it returns an error
+    /// with the iterator that could not be pushed as second element of the tuple (returning ownership back).
+    /// 
+    /// For owned arrays with const size, prefer `push_array()`.
+    /// For slices that are composed of Clone types, prefer `push_slice()`.
+    /// For general iterators, use `push_iterator()` if the possibility of panic does not scare you.
+    pub fn push_exact_iterator(&mut self, iter: impl ExactSizeIterator<Item = T>)
+    -> Result<(), (CustomError, impl ExactSizeIterator<Item = T>)>
+    {
+        // Thanks to ExactSizeIterator, we can get the exact size of the iterator beforehand and check for overflow
+        if self.data.len() + iter.len() > MAX_STACK_SIZE {
+            return Err((CE::CapacityError, iter));
+        }
+
+        self.data.extend(iter);
+        Ok(())
+    }
+
+    /// Pushes an owned array of values onto the stack.
+    /// The array MUST have a const size, otherwise use an iterator.
+    /// If the stack does not have enough space, it returns an error
+    /// with the array that could not be pushed as second element of the tuple (returning ownership back).
+    /// 
+    /// The last element of the array will be the topmost element of the stack.
+    pub fn push_array<const N: usize>(&mut self, array: [T; N]) -> Result<(), (CustomError, [T; N])> {
+        if self.data.len() + N > MAX_STACK_SIZE {
+            return Err((CE::CapacityError, array));
+        }
+
+        // SAFETY: We already checked that capacity is OK. Can't panic.
+        self.data.extend(array); // Internally converts the array into an iterator
+        Ok(())
+    }
+
+    /// Pops a value from the stack.
+    /// If the stack is empty, it returns `None`.
+    pub fn pop(&mut self) -> Option<T> {
+        self.data.pop()
+    }
+
+    /// Returns a double-ended iterator that yields up to `n` popped elements from the stack.
+    /// Each `.next()` call on the iterator pops one, but the rest are still popped even if the iterator is dropped before being fully consumed.
+    /// Note that the returned iterator still keeps a mutable borrow on the stack until it is fully consumed or dropped.
+    /// 
+    /// If the stack is empty, it returns `None`. If you try to pop more elements than there are, it pops all.
+    /// 
+    /// The topmost element of the stack is the **FIRST** item yielded by the iterator
+    /// (unless using `next_back()`), unlike `multipeek()`.
+    pub fn multipop(&mut self, n: usize) -> Option<impl DoubleEndedIterator<Item = T>> {
+    // See https://doc.rust-lang.org/stable/book/ch10-02-traits.html#returning-types-that-implement-traits for explanation of what we're returning here.
+        if self.data.is_empty() {
+            return None;
+        }
+
+        // The caller may not need to collect it into a Vec, so we return the iterator directly.
+        // If the iterator is dropped before it's fully consumed, the data is still removed from the stack.
+        // Thanks to saturating_sub, we don't have to check if n > len here.
+        Some(
+            self.data.drain(self.data.len().saturating_sub(n)..)
+                .rev()
+        )
+    }
+
+    /// Returns the last value pushed onto the stack without removing it.
+    /// If the stack is empty, it returns `None`.
+    pub fn peek(&self) -> Option<&T> {
+        self.data.last()
+    }
+
+    /// Returns the last `n` values pushed onto the stack without removing them as a slice.
+    /// If `n` is greater than the stack size, it returns the entire stack as a slice.
+    /// If the stack is empty, it returns an empty slice.
+    /// 
+    /// The topmost element is the last element in the returned slice.
+    pub fn multipeek(&self, n: usize) -> &[T] {
+        &self.data[self.data.len().saturating_sub(n)..] // Get the last `n` elements as a slice.
+        // The `saturating_sub` ensures that if n > len, we get 0 as the start index, effectively returning the entire stack,
+        // even returning an empty slice if the stack is empty (desirable).
+    }
+
+    /// Clears the entire stack.
+    pub fn clear(&mut self) {
+        self.data.clear();
+    }
+
+    pub fn len(&self) -> usize {
+        self.data.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.data.is_empty()
+    }
+}
+
+#[allow(dead_code)]
+impl<'a, T, DI, SIZE> CustomStack<'a, T, DI, SIZE>
+where
+    T: Clone, // We need Clone here to be able to clone the slice elements (since we can't own the slice)
+    DI: WriteOnlyDataCommand,
+    SIZE: DisplaySize,
+{
+    /// Pushes multiple values onto the stack from a slice.
+    /// If the stack does not have enough space for all values, it returns an error.
+    ///
+    /// We need the `Clone` bound on `T` to be able to clone the elements from the slice.
+    /// To push multiple values from an IntoIterator collection that owns `T`, use `push_iterator()`.
+    /// To push multiple values from an ExactSizeIterator that owns `T`, use `push_exact_iterator()`.
+    /// To push a const-size array of `T`, use `push_array()`.
+    pub fn push_slice(&mut self, slice: &[T]) -> Result<(), CustomError> {
+        self.data.extend_from_slice(slice).map_err(|_| CE::CapacityError)
+    }
+}
+
+impl<'a, T, DI, SIZE> CustomStack<'a, T, DI, SIZE>
+where
+    T: core::fmt::Display,
+    DI: WriteOnlyDataCommand,
+    SIZE: DisplaySize,
+{
+    pub fn draw(&self, flush: bool) -> Result<(), CustomError> {
+        // A convenience variable
+        let text_height = self.character_style.font.character_size.height - PIXELS_REMOVED;
+        
+        // Clear the area where the stack will be drawn
+        let clear_rect = Rectangle::new(
+            (0, 0).into(),
+            (self.disp_dimensions.width, (text_height * ((self.disp_dimensions.height / text_height) - 1))).into() // We always clear the entire area, e.g. when popping elements
+        )
+        .into_styled(self.primitives_style);
+
+        // If the stack is empty, we don't need to draw anything so we expediently return
+        if self.data.is_empty() {
+            // We only borrow the RefCell at the end and do everything in bulk to minimize the critical section
+            let mut display_refmut = self.display_refcell.borrow_mut();
+            // Unpack the RefMut to get the inner struct, then get a mutable reference to it
+            // In method calls, the compiler does this for us, but not so when we need to pass a reference to `draw()`
+            let display_ref = &mut (*display_refmut);
+
+            clear_rect.draw(display_ref)?;
+            if flush { display_ref.flush()?; };
+            return Ok(());
+        }
+
+        // If there is less data than the display can show, we just draw all of it.
+        // In that case, we will "hang" the stack visually from the top of the display (desirable).
+        let num_lines: usize = min(
+            self.data.len(),
+            (self.disp_dimensions.height / text_height) as usize // Integer division: always rounded down (desirable here)
+            - 1 // -1 because we want to leave space for the bottom line
+        );
+
+        // Possibly gate this behind a defmt feature flag if we move this into a library crate
+        trace!("Drawing {} lines on the display.", num_lines);
+
+        let topmost_data = self.multipeek(num_lines);
+
+        // Borrow the display RefCell at the end, to minimize the critical section
+        // It would be a giant lifetime PITA to try and push the Text-s into a Vec and then draw them later, tho.
+        let mut display_refmut = self.display_refcell.borrow_mut();
+        // Get a mutable reference to the display itself, unpacking it from the RefMut
+        // In method calls, the compiler does this for us, but not so when we need to pass a reference to `draw()`
+        let display_ref = &mut (*display_refmut);
+        
+        clear_rect.draw(display_ref)?;
+
+        let mut buf = String::<TEXT_BUFFER_SIZE>::new();
+
+        // We need usize for indexing
+        for i in (0..num_lines).rev() {
+            core::write!(&mut buf, "{}", topmost_data[i])?; // Format the text as Display into the buffer
+
+            Text::with_baseline(
+                buf.as_str(),
+                (0, ((self.character_style.font.character_size.height - PIXELS_REMOVED) * i as u32)).try_into()?,
+                self.character_style,
+                Baseline::Top
+            )
+            .draw(display_ref)?;
+
+            buf.clear();
+        }
+
+        if flush { display_ref.flush()?; };
+        Ok(())
+    }
+}
