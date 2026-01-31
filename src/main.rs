@@ -376,8 +376,7 @@ fn main() -> ! {
                 textbox.draw(true).expect("Error with display");
             },
 
-            '\x14' => { // Ctrl-T - alias for Ctrl-Alt-T (e.g. for Linux users)
-                // XXX: Please take care to keep this in sync with the Ctrl-Alt-T handler below
+            '\x14' => { // Ctrl-T
                 match handle_commands(&rx, &disp_refcell, &mut textbox, &mut stack) {
                     Ok(()) => {},
                     Err(e) => {
@@ -414,89 +413,24 @@ fn main() -> ! {
                 };
             },
 
-            '\x1B' => { // Escape character
-                let mut buf = [0_u8; 6]; // We read 6 bytes, because the escape sequence is usually up to 6 bytes long (not for all implementations, but for most common ones it is)
+            '\x1B' => { // Escape character - start of an escape sequence
+                // We read 10 bytes to "flush" the input so that we don't read it in the next loop iterations.
+                let mut buf = [0_u8; 11];
+                buf[0] = 0x1B; // We already read the first byte, so store it
+
                 delay.delay_ms(50); // HACK: Wait a bit to allow the rest of the sequence to arrive.
-                let _ = rx.read_raw(&mut buf); // Nonblocking. We ignore the result, since Ctrl-[ (that's Ctrl+ú on a Czech keyboard) produces only the escape character
+                let Ok(num_bytes) = rx.read_raw(&mut buf[1..]) else { // Nonblocking
+                    debug!("Escape byte received over UART: 0x1B");
+                    continue 'main;
+                };
 
-                // TODO: Maybe even move the cursor around in the textbox?
-
-                // See https://en.wikipedia.org/wiki/ANSI_escape_code?useskin=vector#Terminal_input_sequences for list of (common) escape sequences
-                match buf {
-                    [b'\x00', ..] => { // Just an escape character
-                        info!("Escape character received over UART. Possibly Ctrl-[ or Esc key?");
-                    },
-                    [b'[', b'A', ..] => { // Up arrow
-                        info!("Up arrow pressed");
-                    },
-                    [b'[', b'B', ..] => { // Down arrow
-                        info!("Down arrow pressed");
-                    },
-                    [b'[', b'C', ..] => { // Right arrow
-                        info!("Right arrow pressed");
-                    },
-                    [b'[', b'D', ..] => { // Left arrow
-                        info!("Left arrow pressed");
-                    },
-                    [b'[', b'3', b'~', ..] => { // Delete key
-                        error!("Decide whether to implement Delete key as a backspace alias or something else (like dropping the top of the stack?)");
-                    },
-                    [b'\x14', ..] => { // Ctrl-Alt-T
-                        // XXX: Please take care to keep this in sync with the Ctrl-T handler above
-                        match handle_commands(&rx, &disp_refcell, &mut textbox, &mut stack) {
-                            Ok(()) => {},
-                            Err(e) => {
-                                match e {
-                                    CE::BadInput |
-                                    CE::ParseIntError(_) |
-                                    CE::CapacityError => {
-                                        {
-                                            let mut disp = disp_refcell.borrow_mut();
-                                            disp.set_invert(false).expect("Failed to invert display");
-                                        }
-
-                                        textbox.clear();
-                                        stack.draw(false).expect("Error with display");
-                                        textbox.draw(false).expect("Error with display");
-
-                                        disp_error(&disp_refcell);
-                                    },
-                                    CE::Cancelled => { // Not truly an error, just a notification
-                                        info!("Command mode cancelled by user.");
-                                        textbox.draw(true).expect("Error with display");
-                                    },
-                                    CE::DisplayError(e) => defmt::panic!("Error with display: {:?}", e),
-                                    other => {
-                                        error!("An irrecoverable or otherwise unhandled error: {:?}", other);
-                                        {
-                                            let mut disp = disp_refcell.borrow_mut();
-                                            disp.set_invert(false).expect("Failed to invert display");
-                                        }
-                                        disp_grave_error(&disp_refcell, Some(&mut delay));
-                                    }
-                                }
-                            }
-                        };
-                    },
-                    [b'[', b'1', b'5', b'~', ..] => { // F5 key
-                        // Force a redraw of both textbox and stack
-                        // Amongst other effects, this clears the non-grave error icon
-                        info!("Doing a forced redraw of both stack and textbox.");
-                        
-                        // Just to be ultra-sure, we flush both
-                        stack.draw(true).expect("Error with display");
-                        textbox.draw(true).expect("Error with display");
-                    },
-                    _ => {
-                        warn!("Unhandled escape sequence received over UART: {:?}", &buf);
-                    }
-                }
-
-                trace!("Escape sequence received over UART: {:?}", core::str::from_utf8(&buf).unwrap_or("Invalid UTF-8"));
+                // We do not handle the escape sequences at all, just log them for debugging purposes.
+                debug!("Escape sequence received over UART: {:#04X}", buf[..=num_bytes]); // With the RangeToInclusive, we account for the first byte
+                continue 'main;
             },
 
             _ => {
-                warn!("Unhandled character received over UART: {:?} (0x{:X})", char_buf, buf[0]);
+                warn!("Unhandled character received over UART: {:?} ({:#04X})", char_buf, buf[0]);
                 continue 'main;
             },
         }
