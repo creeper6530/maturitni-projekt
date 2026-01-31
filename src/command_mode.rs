@@ -25,11 +25,10 @@ use crate::GRAVE_ERROR_BMP;
 /// - `breakpoint alt` (aliases: `bkpt alt`, `b alt`): Trigger an inline breakpoint instruction (causes exception if no debugger attached)
 /// - `boot usb` (aliases: `usb boot`, `usb`): Reboot into the USB bootloader
 /// - `redraw` (aliases: `refresh`, `reload`, `r`, `f5`): Force a redraw of stack
-///   - Also can be triggered by pressing F5 or Ctrl-R (technically sending the VT100-style escape codes for those keys),
-///     when it also redraws the textbox.
+///   - Also can be triggered by pressing Ctrl-R, when it also redraws the textbox.
 /// - `brightness N` (aliases: `brt N`): Set display brightness to a predefined level between 1 and 5
 /// - `clear` (aliases: `cls`, `c`): Clear the stack
-/// - `duplicate` (aliases: `dup`, `d`): Duplicate the top element of the stack
+/// - `duplicate` (aliases: `dup`): Duplicate the top element of the stack
 /// - `drop`: Remove the top element of the stack
 ///   - `drop N`: Remove the top N elements of the stack (where N is a positive integer not exceeding the current stack size)
 /// - `swap` (aliases: `s`): Swap the top two elements of the stack
@@ -192,7 +191,7 @@ where
             }
         },
 
-        "d" | "dup" | "duplicate" => {
+        "dup" | "duplicate" => {
             if let Some(val) = stack.peek() {
                 if stack.push(val.clone()).is_err() {
                     error!("Failed to duplicate top element of stack: CapacityError");
