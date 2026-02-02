@@ -14,8 +14,6 @@ type IEK = IntErrorKind;
 type IEKC = IntErrorKindClone;
 type DiE = DisplayError;
 type DiEC = DisplayErrorClone;
-type RET = ReadErrorType;
-type RETC = ReadErrorTypeClone;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, DefmtFormat, Default)]
 #[non_exhaustive] // So that we can add more error types later without breaking compatibility
@@ -28,7 +26,7 @@ pub enum CustomError {
     DisplayError(DisplayErrorClone),
     CapacityError,
 
-    UartReadError(ReadErrorTypeClone),
+    UartReadError(ReadErrorType),
 
     /// Like the macro - unimplemented functionality, not for an error that isn't implemented in this enum.
     /// Use the Other variant for that.
@@ -65,16 +63,6 @@ pub enum DisplayErrorClone {
     DataFormatNotImplemented,
     RSError,
     OutOfBoundsError,
-}
-
-// Because ReadErrorType doesn't implement Clone, Copy, PartialEq nor Eq. (It should implement defmt::Format though.)
-// Similarly, I've made a PR that waits for merge: https://github.com/rp-rs/rp-hal/pull/980
-#[derive(Debug, Clone, Copy, PartialEq, Eq, DefmtFormat)]
-pub enum ReadErrorTypeClone {
-    Overrun,
-    Break,
-    Parity,
-    Framing
 }
 
 impl fmt::Display for CustomError {
@@ -138,12 +126,7 @@ impl From<CapacityError> for CustomError {
 
 impl From<ReadErrorType> for CustomError {
     fn from(value: ReadErrorType) -> Self {
-        CE::UartReadError(match value {
-            RET::Overrun => RETC::Overrun,
-            RET::Break => RETC::Break,
-            RET::Parity => RETC::Parity,
-            RET::Framing => RETC::Framing
-        })
+        CE::UartReadError(value)
     }
 }
 
