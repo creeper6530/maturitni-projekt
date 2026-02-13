@@ -154,7 +154,7 @@ fn main() -> ! {
         let mut buf: [u8; 1] = [0]; // Yes, we do need to initialize it even if we overwrite it immediately.
         if let Err(e) = rx.read_full_blocking(&mut buf) {
             error!("Failed to read from UART: {:?}", e);
-            if let hal::uart::ReadErrorType::Break = e { // ReadErrorType does not implement PartialEq
+            if let hal::uart::ReadErrorType::Break = e {
                 debug!("Check wiring, usually a break indicates a disconnected wire at the RX pin.");
             };
 
