@@ -211,7 +211,7 @@ fn main() -> ! {
                 continue;
             },
 
-            '+' | '-' | '*' | '/' | '%' | '^' => {
+            '+' | '-' | '*' | '/' => {
                 if textbox.len() != 0 {
                     let data = textbox.get_text();
                     textbox.clear();
@@ -259,26 +259,6 @@ fn main() -> ! {
                                     continue;
                                 } else {
                                     a / b
-                                }
-                            },
-                            '%' => {
-                                if b == 0 {
-                                    error!("Modulo by zero");
-                                    textbox.append_str("Err").unwrap(); // HACK
-                                    textbox.draw(true);
-                                    continue;
-                                } else {
-                                    a % b
-                                }
-                            },
-                            '^' => {
-                                if b < 0 {
-                                    error!("Exponentiation to a negative power");
-                                    textbox.append_str("Err").unwrap(); // HACK
-                                    textbox.draw(true);
-                                    continue;
-                                } else {
-                                    a.pow(b as u32) // We can safely cast to u32 because we checked that b is non-negative
                                 }
                             },
                             _ => defmt::unreachable!(), // We already checked this above
