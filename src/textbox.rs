@@ -47,7 +47,7 @@ const TEXT_BUFFER_SIZE: usize = 32;
 This constant shall be determined by the programmer,
 as we won't know the font size at compile time,
 and going off of defaults beats the point of the ability to change the defaults. */
-const TEXTBOX_OFFSET: u32 = 3;
+pub const TEXTBOX_OFFSET: u32 = 3;
 /// Determines the height of the cursor in pixels.
 /// Disregarded if `TEXTBOX_CURSOR` is false.
 const CURSOR_HEIGHT: u32 = 3;
