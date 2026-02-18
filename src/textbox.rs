@@ -57,7 +57,7 @@ const TEXT_BUFFER_SIZE: usize = 32;
 This constant shall be determined by the programmer,
 as we won't know the font size at compile time,
 and going off of defaults beats the point of the ability to change the defaults. */
-const TEXTBOX_OFFSET: u8 = 4;
+pub const TEXTBOX_OFFSET: u8 = 4;
 /** Whether to draw a cursor under the text of the textbox
 
 May only be true of we give it the space with the TEXTBOX_OFFSET const

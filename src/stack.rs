@@ -275,7 +275,7 @@ where
         // Clear the area where the stack will be drawn
         Rectangle::new(
             (0, 0).into(),
-            (self.disp_dimensions.width as u32, (self.disp_dimensions.height - text_height - 1) as u32).into() // We always clear the entire area, e.g. when popping elements
+            (self.disp_dimensions.width as u32, (self.disp_dimensions.height - text_height - crate::textbox::TEXTBOX_OFFSET) as u32).into() // We always clear the entire area, e.g. when popping elements
         )
         .into_styled(
             if self.debug {
