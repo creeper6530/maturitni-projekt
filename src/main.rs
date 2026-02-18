@@ -1,6 +1,3 @@
-//! Blinks the LED on a Pico board
-//!
-//! This will blink an LED attached to GP25, which is the pin the Pico uses for the on-board LED.
 #![no_std]
 #![no_main]
 
@@ -18,16 +15,10 @@ use hal::{
     watchdog::Watchdog,
     
     sio::Sio,
-
-    dma::single_buffer::Config as DmaSingleBufferConfig,
-    dma::DMAExt,
 };
 use rp2040_hal::fugit::RateExtU32; // For the `.kHz()` method on u32 integers
 
-// Display imports
-use embedded_graphics::{prelude::*, image::Image, pixelcolor::BinaryColor};
 use ssd1306::{prelude::*, Ssd1306};
-use tinybmp::Bmp;
 
 use core::cell::RefCell;
 //use core::ops::DerefMut;
@@ -60,7 +51,6 @@ defmt::timestamp!("{=u64:us}", {
 fn main() -> ! {
     info!("Program start");
     let mut peri = pac::Peripherals::take().unwrap();
-    let core = pac::CorePeripherals::take().unwrap();
     let mut watchdog = Watchdog::new(peri.WATCHDOG);
     let sio = Sio::new(peri.SIO);
 
@@ -73,7 +63,6 @@ fn main() -> ! {
         &mut peri.RESETS,
         &mut watchdog,
     ).unwrap();
-    let mut delay = cortex_m::delay::Delay::new(core.SYST, clocks.system_clock.freq().to_Hz());
     trace!("Clocks initialized");
 
     let pins = hal::gpio::Pins::new(
@@ -98,18 +87,8 @@ fn main() -> ! {
         .into_buffered_graphics_mode();
     disp.init().unwrap();
     disp.set_brightness(Brightness::BRIGHTEST).unwrap();
-
-    // We show a Rust logo bitmap on the display as a loading screen
-    // We're showing it as soon as possible once the display and everything it needs is initialized
-    Image::new(
-        &Bmp::from_slice(include_bytes!("rust.bmp")).unwrap(),
-        (32, 0).into(), // The image is 64x64, so we center it horizontally
-    )
-    .draw(&mut disp).unwrap();
-    disp.flush().unwrap();
     trace!("Display initialized");
 
-    // Let me ask one question: Why the hell can't this be as straightforward as I²C is?
     let uart = hal::uart::UartPeripheral::new(
         peri.UART0,
         (pins.gpio0.into_function(), pins.gpio1.into_function()), // Luckily the function itself is inferred, so we don't need to specify it explicitly
@@ -119,12 +98,8 @@ fn main() -> ! {
     .unwrap();
     let (rx, tx) = uart.split();
     trace!("UART initialized");
-    
-    // Here we're basically just flexing that we can use DMA :D
-    let dma = peri.DMA.split(&mut peri.RESETS);
-    let _tx_transfer = DmaSingleBufferConfig::new(dma.ch0, b"\x1b[2J\x1b[HUART initialised!\r\n", tx).start(); // Send a message over UART using DMA, also clear the terminal (VT100 codes)
-    // We don't need the channel or the transmitter anymore, so we don't wait for the transfer to complete
-    //let (_ch0, _, _tx) = tx_transfer.wait(); // So that we can reuse them
+
+    tx.write_full_blocking(b"\x1b[2J\x1b[HUART initialised!\r\n");
 
     // ----------------------------------------------------------------------------
 
@@ -135,10 +110,6 @@ fn main() -> ! {
     let mut textbox: _ = CustomTextboxBuilder::new(&disp_refcell)
         .build();
 
-    stack.push_slice(&[5, 6, 7, 8, 9, 10]).unwrap();
-    //textbox.append_str("DEBUG TEXTBOX DEBUG!").unwrap();
-
-    delay.delay_ms(2_000);
     stack.draw(false);
     textbox.draw(true);
 
@@ -184,7 +155,7 @@ fn main() -> ! {
                 };
             },
 
-            '\u{8}' | '\u{7F}' => { // Backspace or Delete
+            '\x08' | '\x7F' => { // Backspace or Delete
                 #[cfg(debug_assertions)]
                 trace!("Character received: (0x{:X})", buf[0]);
 
@@ -340,24 +311,6 @@ fn main() -> ! {
                         continue;
                     },
                 };
-            },
-
-            '\x03' => { // Ctrl-C
-                // XXX: Add potential explicit cleanup code here
-                drop(stack);
-                drop(textbox);
-                {
-                    trace!("Consuming the refcell and deinitializing the display");
-                    let mut disp = disp_refcell.into_inner();
-                    disp.clear(BinaryColor::Off).unwrap();
-                    disp.flush().unwrap();
-                    disp.set_display_on(false).unwrap();
-                    disp.release() // Release the I²C interface
-                    .release() // Release the I²C peripheral
-                    .free(&mut peri.RESETS); // Free the I²C peripheral
-                }
-
-                defmt::panic!("Stopped by user (Ctrl-C)");
             },
 
             _ => {
