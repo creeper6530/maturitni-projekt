@@ -120,11 +120,6 @@ where
             cortex_m::peripheral::SCB::sys_reset(); // Reset the microcontroller
         },
 
-        "halt" => {
-            error!("Halting microcontroller (command 'halt')");
-            halt(disp_refcell);
-        },
-
         "b" | "bkpt" | "breakpoint" => {
             // Here should be a breakpoint for debugging purposes in your IDE:
             debug!("Breakpoint requested by user (command 'breakpoint')");
@@ -304,31 +299,4 @@ where
     textbox.clear();
     textbox.draw(true)?;
     Ok(())
-}
-
-fn halt<DI, SIZE>(
-    disp_refcell: &RefCell<Ssd1306<DI, SIZE, BufferedGraphicsMode<SIZE>>>
-) -> !
-where 
-    DI: WriteOnlyDataCommand,
-    SIZE: DisplaySize,
-{
-    let mut disp = disp_refcell.borrow_mut();
-
-    // Converted at https://convertico.com/png-to-bmp/ to 1-bit BMP
-    let bmp = GRAVE_ERROR_BMP
-        .expect("Failed to load grave error image from memory. Image data must be malformed.");
-    let img = Image::new(
-        &bmp,
-        (0, 0).into(), // Fullscreen
-    );
-    if let Err(e) = img.draw(disp.deref_mut()) {
-        // We can't use `defmt::panic!()` here because DisplayError does not implement `defmt::Format`
-        core::panic!("Failed to draw image on display: {:?}", e);
-    };
-    if let Err(e) = disp.flush() {
-        core::panic!("Failed to flush display: {:?}", e);
-    };
-    
-    cortex_m::asm::udf(); // Undefined instruction to cause a hard fault
 }
