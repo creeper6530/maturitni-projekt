@@ -60,9 +60,9 @@ impl Display for DecimalFixed {
                     write!(f, "-")?;
                 }
 
-                let value = self.value.abs();
+                let value = self.value.unsigned_abs();
                 let width = self.exponent.unsigned_abs();
-                let pow = 10_i64.pow(self.exponent.unsigned_abs());
+                let pow = 10_u64.pow(self.exponent.unsigned_abs());
 
                 let whole_part = value / pow; // Integer division by power of ten truncates away last digits
                 let mut fractional_part = value % pow; // Integer modulo by power of ten gets the discarded last digits back
