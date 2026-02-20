@@ -49,7 +49,7 @@ pub static BOOT2: [u8; 256] = rp2040_boot2::BOOT_LOADER_W25Q080;
 // 1 MHz, the maximum speed for I²C on the RP2040 (so-called Fast Mode Plus; datasheet 4.3.3), and the SSD1306 can handle it well
 const I2C_FREQ: hal::fugit::HertzU32 = hal::fugit::HertzU32::kHz(1000);
 
-pub const GRAVE_ERROR_BMP: Result<Bmp<'static, BinaryColor>, tinybmp::ParseError> = Bmp::from_slice(include_bytes!("calc_grave_err.bmp"));
+const GRAVE_ERROR_BMP: Result<Bmp<'static, BinaryColor>, tinybmp::ParseError> = Bmp::from_slice(include_bytes!("calc_grave_err.bmp"));
 const ERROR_BMP: Result<Bmp<'static, BinaryColor>, tinybmp::ParseError> = Bmp::from_slice(include_bytes!("calc_err.bmp"));
 
 #[inline]

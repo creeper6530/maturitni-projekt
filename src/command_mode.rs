@@ -1,12 +1,10 @@
 use defmt::*;
 use rp2040_hal as hal;
 use heapless::Vec;
+use core::cell::RefCell;
 
-use embedded_graphics::{image::Image, prelude::*};
 use ssd1306::{prelude::*, Ssd1306, mode::BufferedGraphicsMode};
 
-use core::cell::RefCell;
-use core::ops::DerefMut;
 
 // Because we already have the `mod` in `main.rs`
 use crate::textbox::CustomTextbox;
@@ -15,7 +13,6 @@ use crate::custom_error::{
     CustomError,
     CE // Short type alias
 };
-use crate::GRAVE_ERROR_BMP;
 
 /// # List of commands:
 /// 
