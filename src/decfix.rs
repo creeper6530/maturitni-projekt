@@ -1,5 +1,5 @@
 use defmt::Format as DefmtFormat;
-use heapless::String;
+use heapless::{String, format};
 use core::{
     fmt::Display,
     ops::{Add, Sub, Neg, Mul, Div},
@@ -13,7 +13,7 @@ use crate::custom_error::{ // Because we already have the `mod` in `main.rs`
 };
 
 const DEFAULT_EXPONENT: i32 = -9;
-const PARSING_BUFFER_SIZE: usize = 16; // Buffer size for padding fractional parts when parsing strings
+const PARSING_BUFFER_SIZE: usize = 32; // Buffer size for padding fractional parts when parsing strings and displaying them.
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, DefmtFormat)]
 pub struct DecimalFixed {
@@ -49,35 +49,28 @@ impl Display for DecimalFixed {
                     with padding character '0' = a zero
                     └─> Repeats a zero `width` times */
             },
-            Ordering::Less => 'exit_match: { // Declaring a labelled block with the label 'exit_match,
-                                             // so that we can jump to its end later.
-                                             // Imagine it as a GOTO, but restricted to ends of code blocks.
-
-                // Equal and Greater cases add their own negative signs,
-                // since there we write the (signed) value at the beginning.
-                // Here we need to add it manually.
+            Ordering::Less => {
                 if self.value.is_negative() {
                     write!(f, "-")?;
                 }
+                let width = self.exponent.unsigned_abs() as usize;
+                
+                // Pad the value with leading zeroes if it's too short
+                let unsplit_str: String<PARSING_BUFFER_SIZE> = format!("{:0>width$}", self.value.unsigned_abs(), width = width + 1)?;
+                    // +1 because we need to split the string into whole and fractional part,
+                    // and the whole part needs to be at least 1 digit long (even if it's just zero),
+                    // so the unsplit string needs to be at least `width + 1` characters long
 
-                let value = self.value.unsigned_abs();
-                let width = self.exponent.unsigned_abs();
-                let pow = 10_u64.pow(self.exponent.unsigned_abs());
-
-                let whole_part = value / pow; // Integer division by power of ten truncates away last digits
-                let mut fractional_part = value % pow; // Integer modulo by power of ten gets the discarded last digits back
-
+                // We make the (reasonable) assumption that it's all ASCII
+                let (whole_part, frac_part) = unsplit_str.split_at(
+                    (unsplit_str.len() as usize) - width
+                );
+                let frac_part = frac_part.trim_end_matches('0');
+                
                 write!(f, "{}", whole_part)?;
-                if fractional_part == 0 { break 'exit_match } // Since we're in a labelled block, we can short-circuit to its end
-
-                let mut width = width as usize;
-                while fractional_part % 10 == 0 { // While there would be trailing zeroes present
-                    fractional_part /= 10; // Divide by ten in place to remove trailing zeroes from the fractional part
-                    width -= 1; // Decrement the width accordingly so that we don't turn 3.1400 into 3.0014
+                if !frac_part.is_empty() {
+                    write!(f, ".{}", frac_part)?;
                 }
-
-                // We still need to pad with zeroes, aligning right, if we had e.g. 3.0014
-                write!(f, ".{:0>width$}", fractional_part)?;
             }
         }
 
@@ -140,8 +133,8 @@ impl DecimalFixed {
 
         let mut iter = s.splitn(2, '.'); // Split into at most two parts, at the first dot from left
 
-        let whole_part: &str = iter.next().expect("First .next() on SplitN should be Some!");
-        let whole_part = whole_part.parse::<i64>()?;
+        let whole_part_str: &str = iter.next().expect("First .next() on SplitN should be Some!");
+        let whole_part = whole_part_str.parse::<i64>()?;
 
         let mut value = whole_part.checked_mul(
             10_i64.pow(minus_exp)
@@ -182,6 +175,11 @@ impl DecimalFixed {
                 ).ok_or(CE::MathOverflow)?;
             }
         };
+
+        // Because the negative would be lost, so "-0.1" would be parsed as "0.1"
+        if whole_part_str == "-0" {
+            value = value.checked_neg().ok_or(CE::Impossible)?; // Negating i64::MIN would overflow, but that's not possible here since the whole part is zero
+        }
 
         Ok( DecimalFixed { value, exponent: exp } )
     }

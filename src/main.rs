@@ -207,7 +207,7 @@ fn main() -> ! {
             },
 
             '.' | ',' => { // Decimal point
-                if textbox.is_empty() {
+                if textbox.is_empty() || textbox.get_text_str() == "-" {
                     if textbox.append_str("0.").is_err() {
                         error!("It should be impossible to fail to append to an empty textbox.");
                         disp_grave_error(&disp_refcell, Some(&mut delay));
