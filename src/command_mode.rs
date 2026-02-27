@@ -1,12 +1,9 @@
 use defmt::*;
 use rp2040_hal as hal;
 use heapless::Vec;
-
-use embedded_graphics::{image::Image, prelude::*};
-use ssd1306::{prelude::*, Ssd1306, mode::BufferedGraphicsMode};
-
 use core::cell::RefCell;
-use core::ops::DerefMut;
+
+use ssd1306::{prelude::*, Ssd1306, mode::BufferedGraphicsMode};
 
 // Because we already have the `mod` in `main.rs`
 use crate::textbox::CustomTextbox;
@@ -15,12 +12,10 @@ use crate::custom_error::{
     CustomError,
     CE // Short type alias
 };
-use crate::GRAVE_ERROR_BMP;
 
 /// # List of commands:
 /// 
 /// - `reset`: Reset the microcontroller
-/// - `halt`: Halt the microcontroller (actually causes a hard fault by executing an undefined instruction)
 /// - `breakpoint` (aliases: `bkpt`, `b`): Trigger a breakpoint set in your debugger/IDE
 /// - `breakpoint alt` (aliases: `bkpt alt`, `b alt`): Trigger an inline breakpoint instruction (causes exception if no debugger attached)
 /// - `boot usb` (aliases: `usb boot`, `usb`): Reboot into the USB bootloader
