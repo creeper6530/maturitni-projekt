@@ -219,6 +219,19 @@ where
         Ok(())
     }
 
+    /// Pushes multiple values onto the stack from a slice.
+    /// If the stack does not have enough space for all values, it returns an error.
+    ///
+    /// We need the `Clone` bound on `T` to be able to clone the elements from the slice.
+    /// To push multiple values from an IntoIterator collection that owns `T`, use `push_iterator()`.
+    /// To push multiple values from an ExactSizeIterator that owns `T`, use `push_exact_iterator()`.
+    /// To push a const-size array of `T`, use `push_array()`.
+    pub fn push_slice(&mut self, slice: &[T]) -> Result<(), CustomError>
+    where T: Clone // We need Clone here to be able to clone the slice elements (since we can't own the slice)
+    {
+        self.data.extend_from_slice(slice).map_err(|_| CE::CapacityError)
+    }
+
     /// Pops a value from the stack.
     /// If the stack is empty, it returns `None`.
     pub fn pop(&mut self) -> Option<T> {
@@ -277,34 +290,10 @@ where
     pub fn is_empty(&self) -> bool {
         self.data.is_empty()
     }
-}
-
-#[allow(dead_code)]
-impl<'a, T, DI, SIZE> CustomStack<'a, T, DI, SIZE>
-where
-    T: Clone, // We need Clone here to be able to clone the slice elements (since we can't own the slice)
-    DI: WriteOnlyDataCommand,
-    SIZE: DisplaySize,
-{
-    /// Pushes multiple values onto the stack from a slice.
-    /// If the stack does not have enough space for all values, it returns an error.
-    ///
-    /// We need the `Clone` bound on `T` to be able to clone the elements from the slice.
-    /// To push multiple values from an IntoIterator collection that owns `T`, use `push_iterator()`.
-    /// To push multiple values from an ExactSizeIterator that owns `T`, use `push_exact_iterator()`.
-    /// To push a const-size array of `T`, use `push_array()`.
-    pub fn push_slice(&mut self, slice: &[T]) -> Result<(), CustomError> {
-        self.data.extend_from_slice(slice).map_err(|_| CE::CapacityError)
-    }
-}
-
-impl<'a, T, DI, SIZE> CustomStack<'a, T, DI, SIZE>
-where
-    T: core::fmt::Display,
-    DI: WriteOnlyDataCommand,
-    SIZE: DisplaySize,
-{
-    pub fn draw(&self, flush: bool) -> Result<(), CustomError> {
+    
+    pub fn draw(&self, flush: bool) -> Result<(), CustomError>
+    where T: core::fmt::Display
+    {
         // A convenience variable
         let text_height = self.character_style.font.character_size.height - PIXELS_REMOVED;
         
