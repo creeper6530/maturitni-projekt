@@ -111,17 +111,17 @@ impl<'a> CustomStackBuilder<'a> {
     }
 
     // Returning &mut Self allows chaining calls (like Builder.foo().bar().baz())
-    pub const fn set_disp_dimensions(&mut self, dimensions: DisplayDimensions) -> &mut Self {
+    pub const fn set_disp_dimensions(mut self, dimensions: DisplayDimensions) -> Self {
         self.disp_dimensions = dimensions;
         self
     }
 
-    pub const fn set_character_style(&mut self, character_style: MonoTextStyle<'a, BinaryColor>) -> &mut Self {
+    pub const fn set_character_style(mut self, character_style: MonoTextStyle<'a, BinaryColor>) -> Self {
         self.character_style = character_style;
         self
     }
 
-    pub const fn set_primitives_style(&mut self, primitives_style: PrimitiveStyle<BinaryColor>) -> &mut Self {
+    pub const fn set_primitives_style(mut self, primitives_style: PrimitiveStyle<BinaryColor>) -> Self {
         self.primitives_style = primitives_style;
         self
     }
