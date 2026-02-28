@@ -135,10 +135,28 @@ fn main() -> ! {
     // ----------------------------------------------------------------------------
 
     let disp_refcell = RefCell::new(disp);
-    let mut stack: CustomStack<'_, DecimalFixed, _, _> = CustomStackBuilder::new() // Specifying DecimalFixed just to be sure
-        .build(&disp_refcell);
-    let mut textbox = CustomTextboxBuilder::new()
-        .build(&disp_refcell);
+
+    let mut stack: CustomStack<'_, DecimalFixed, _, _>;
+    let mut textbox: CustomTextbox<'_, _, _>;
+    const BIG_TEXT: bool = true; // Whether to use the big font (FONT_7X14) or the small one (default FONT_6X12).
+    // Big text is 4 stack lines up to 18 chars, small text is 5 stack lines up to 21 chars
+
+    if BIG_TEXT {
+        use embedded_graphics::mono_font::{MonoTextStyle, ascii::FONT_7X14};
+
+        let charstyle = MonoTextStyle::new(&FONT_7X14, BinaryColor::On);
+        stack = CustomStackBuilder::new()
+            .set_character_style(charstyle)
+            .build(&disp_refcell);
+        textbox = CustomTextboxBuilder::new()
+            .set_character_style(charstyle)
+            .build(&disp_refcell);
+    } else {
+        stack = CustomStackBuilder::new()
+            .build(&disp_refcell);
+        textbox = CustomTextboxBuilder::new()
+            .build(&disp_refcell);
+    }
 
     // We can't very well draw an error indication on the display if the display is not working, nay?
     // That's why we're panicking on error here, and everywhere else where we have possible display errors.
