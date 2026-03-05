@@ -347,7 +347,7 @@ where
 
             Text::with_baseline(
                 buf.as_str(),
-                (0, ((self.character_style.font.character_size.height - PIXELS_REMOVED) * i as u32)).try_into()?,
+                (0, (text_height * i as u32)).try_into()?,
                 self.character_style,
                 Baseline::Top
             )
